@@ -1,0 +1,657 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Sparkles,
+  Home,
+  ShoppingBag,
+  Package,
+  ArrowLeftRight,
+  Coins,
+  ShieldCheck,
+  LogOut,
+  RefreshCw,
+  Calendar,
+  MapPin,
+  Menu,
+  X
+} from 'lucide-react';
+import { Vendor, StockItem, Sale, TradeProposal, CashoutRequest, TradeIn } from './types';
+import PINLogin from './components/PINLogin';
+import DashboardHome from './components/DashboardHome';
+import JointStaffPage from './components/JointStaffPage';
+import StockManager from './components/StockManager';
+import TradeProposalManager from './components/TradeProposalManager';
+import CashoutAndTradeIn from './components/CashoutAndTradeIn';
+import MasterControl from './components/MasterControl';
+
+export default function App() {
+  // Database States
+  const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [stock, setStock] = useState<StockItem[]>([]);
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [trades, setTrades] = useState<TradeProposal[]>([]);
+  const [cashouts, setCashouts] = useState<CashoutRequest[]>([]);
+  const [tradeIns, setTradeIns] = useState<TradeIn[]>([]);
+
+  // Session States
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [userRole, setUserRole] = useState<'vendor' | 'admin' | null>(null);
+  const [activeTab, setActiveTab] = useState<string>('home');
+
+  // UI Statuses
+  const [isLoadingState, setIsLoadingState] = useState(true);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Load Entire State from backend
+  const refreshAppState = async () => {
+    try {
+      const res = await fetch('/api/state');
+      if (res.ok) {
+        const data = await res.json();
+        setVendors(data.vendors || []);
+        setStock(data.stock || []);
+        setSales(data.sales || []);
+        setTrades(data.trades || []);
+        setCashouts(data.cashouts || []);
+        setTradeIns(data.tradeIns || []);
+      }
+    } catch (err) {
+      console.error("Error synchronizing with state database", err);
+    } finally {
+      setIsLoadingState(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshAppState();
+    
+    // Restore login session from localStorage if available
+    const savedUser = localStorage.getItem('newtons_session_user');
+    const savedRole = localStorage.getItem('newtons_session_role');
+    if (savedUser && savedRole) {
+      setCurrentUser(JSON.parse(savedUser));
+      setUserRole(savedRole as 'vendor' | 'admin');
+      setActiveTab(savedRole === 'admin' ? 'admin' : 'home');
+    }
+  }, []);
+
+  // Update localStorage session on state changes
+  const handleLoginSuccess = (user: any, role: 'vendor' | 'admin') => {
+    setCurrentUser(user);
+    setUserRole(role);
+    localStorage.setItem('newtons_session_user', JSON.stringify(user));
+    localStorage.setItem('newtons_session_role', role);
+    setActiveTab(role === 'admin' ? 'admin' : 'home');
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setUserRole(null);
+    localStorage.removeItem('newtons_session_user');
+    localStorage.removeItem('newtons_session_role');
+    setActiveTab('home');
+    setPinError(null);
+    setMobileMenuOpen(false);
+  };
+
+  // Submit Authorization PIN
+  const handleLoginSubmit = async (pin: string) => {
+    setAuthLoading(true);
+    setPinError(null);
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        // Sync our react vendor state in case admin updated commissions
+        await refreshAppState();
+        
+        if (data.role === 'admin') {
+          handleLoginSuccess(data.user, 'admin');
+        } else {
+          handleLoginSuccess(data.user, 'vendor');
+        }
+      } else {
+        setPinError(data.error || "Login authorization failed.");
+      }
+    } catch (err) {
+      setPinError("Could not connect to secure authentication server.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // Log a sale from Joint Register
+  const handleLogSale = async (saleData: {
+    vendorId: string;
+    itemName: string;
+    stockItemId: string | null;
+    price: number;
+    date: string;
+  }) => {
+    const res = await fetch('/api/sales', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(saleData)
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Failed to log register sale.");
+    }
+
+    await refreshAppState();
+  };
+
+  // Add stock to catalog
+  const handleAddStock = async (stockData: {
+    id?: string;
+    name: string;
+    price: number;
+    vendorId: string;
+    quantity: number;
+    rarity: string;
+    setName: string;
+    imageUrl?: string;
+  }) => {
+    const res = await fetch('/api/stock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(stockData)
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Failed to update stock catalog.");
+    }
+
+    await refreshAppState();
+  };
+
+  // Propose card trade
+  const handleProposeTrade = async (tradeData: {
+    proposerId: string;
+    receiverId: string;
+    offeredItemNames: string;
+    requestedItemNames: string;
+    offeredCash: number;
+    imageUrl?: string;
+    notes?: string;
+  }) => {
+    const res = await fetch('/api/trades', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tradeData)
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Failed to transmit swap proposal.");
+    }
+
+    await refreshAppState();
+  };
+
+  // Respond to trade
+  const handleRespondTrade = async (
+    tradeId: string,
+    status: 'accepted' | 'declined' | 'countered',
+    responseDetails?: {
+      notes?: string;
+      counterOfferedItemNames?: string;
+      counterRequestedItemNames?: string;
+      counterOfferedCash?: number;
+    }
+  ) => {
+    const res = await fetch(`/api/trades/${tradeId}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, ...responseDetails })
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Failed to transmit trade response.");
+    }
+
+    await refreshAppState();
+    
+    // In case trade credit was exchanged, refresh the current vendor's cache
+    if (currentUser && userRole === 'vendor') {
+      const latestVendorsRes = await fetch('/api/state');
+      if (latestVendorsRes.ok) {
+        const latestState = await latestVendorsRes.json();
+        const updatedMe = latestState.vendors.find((v: Vendor) => v.id === currentUser.id);
+        if (updatedMe) {
+          setCurrentUser(updatedMe);
+          localStorage.setItem('newtons_session_user', JSON.stringify(updatedMe));
+        }
+      }
+    }
+  };
+
+  // Request cashout
+  const handleRequestCashout = async (vendorId: string, amount: number) => {
+    const res = await fetch('/api/cashouts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vendorId, amount })
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Failed to submit cash out hold release.");
+    }
+
+    await refreshAppState();
+  };
+
+  // Add a Trade-In
+  const handleAddTradeIn = async (tradeInData: {
+    vendorId: string;
+    details: string;
+    estimatedValue: number;
+    creditApplied: number;
+  }) => {
+    const res = await fetch('/api/trade-ins', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tradeInData)
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Failed to transmit trade-in details.");
+    }
+
+    await refreshAppState();
+  };
+
+  // Admin: Update vendor
+  const handleUpdateVendor = async (vendorData: {
+    id: string;
+    name: string;
+    pin: string;
+    commission: number;
+  }) => {
+    const res = await fetch('/api/admin/vendors', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(vendorData)
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Failed to update vendor structures.");
+    }
+
+    await refreshAppState();
+  };
+
+  // Admin: Approve cashout
+  const handleRespondCashout = async (cashoutId: string, status: 'approved' | 'declined') => {
+    const res = await fetch(`/api/admin/cashouts/${cashoutId}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Failed to register payout response.");
+    }
+
+    await refreshAppState();
+  };
+
+  // Admin: Approve trade-in
+  const handleRespondTradeIn = async (tradeInId: string, status: 'approved' | 'declined', finalCredit?: number) => {
+    const res = await fetch(`/api/admin/trade-ins/${tradeInId}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, finalCredit })
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Failed to register trade-in response.");
+    }
+
+    await refreshAppState();
+  };
+
+  // Main UI render logic
+  if (isLoadingState) {
+    return (
+      <div className="min-h-screen bg-zinc-50 flex flex-col items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-zinc-500 font-medium">
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <span className="text-xs tracking-wider uppercase font-bold text-zinc-400">Syncing Newton's Ledger...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // If not authorized, show PIN Pad login screen
+  if (!currentUser || !userRole) {
+    return (
+      <div className="min-h-screen bg-zinc-50 flex flex-col justify-between py-8">
+        <PINLogin
+          onLogin={handleLoginSubmit}
+          error={pinError}
+          loading={authLoading}
+        />
+        <footer className="text-center text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
+          © 2026 Newton's Collectables • Bury St Edmunds Stall Management
+        </footer>
+      </div>
+    );
+  }
+
+  // Active user details
+  const activeVendorObject = vendors.find((v) => v.id === currentUser.id);
+
+  return (
+    <div className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col font-sans">
+      {/* Premium Header Branding in Geometric Balance theme */}
+      <header className="bg-white border-b border-zinc-200 sticky top-0 z-40 shadow-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            
+            {/* Logo */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-xs">
+                N
+              </div>
+              <div>
+                <h1 className="font-bold text-sm leading-tight text-zinc-900 tracking-wide uppercase">Newtons</h1>
+                <p className="text-[10px] text-zinc-400 tracking-widest uppercase font-medium">Collectables</p>
+              </div>
+              <div className="hidden sm:flex items-center gap-1.5 ml-4 px-2.5 py-1 bg-zinc-100 border border-zinc-200 rounded text-[10px] text-zinc-500 font-bold tracking-wide">
+                <MapPin className="w-3 h-3 text-zinc-400" /> Bury St Edmunds • <Calendar className="w-3 h-3 text-zinc-400" /> Wed & Sat
+              </div>
+            </div>
+
+            {/* Desktop Navigation Links */}
+            <nav className="hidden md:flex items-center gap-1.5 text-xs font-semibold">
+              {userRole === 'vendor' && (
+                <>
+                  <button
+                    id="nav-tab-home"
+                    onClick={() => setActiveTab('home')}
+                    className={`px-3 py-2 rounded-md transition-all ${
+                      activeTab === 'home' 
+                        ? 'bg-zinc-100 text-blue-600 font-bold' 
+                        : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                    }`}
+                  >
+                    Dashboard
+                  </button>
+                  <button
+                    id="nav-tab-stock"
+                    onClick={() => setActiveTab('stock')}
+                    className={`px-3 py-2 rounded-md transition-all ${
+                      activeTab === 'stock' 
+                        ? 'bg-zinc-100 text-blue-600 font-bold' 
+                        : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                    }`}
+                  >
+                    Stock Catalog
+                  </button>
+                  <button
+                    id="nav-tab-trades"
+                    onClick={() => setActiveTab('trades')}
+                    className={`px-3 py-2 rounded-md transition-all ${
+                      activeTab === 'trades' 
+                        ? 'bg-zinc-100 text-blue-600 font-bold' 
+                        : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                    }`}
+                  >
+                    P2P Trades
+                  </button>
+                  <button
+                    id="nav-tab-payouts"
+                    onClick={() => setActiveTab('payouts')}
+                    className={`px-3 py-2 rounded-md transition-all ${
+                      activeTab === 'payouts' 
+                        ? 'bg-zinc-100 text-blue-600 font-bold' 
+                        : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                    }`}
+                  >
+                    Payout & Trade-In
+                  </button>
+                </>
+              )}
+
+              {/* Shared Staff register */}
+              <button
+                id="nav-tab-staff"
+                onClick={() => setActiveTab('staff')}
+                className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
+                  activeTab === 'staff' 
+                    ? 'bg-blue-50 text-blue-600 font-bold border border-blue-100/60' 
+                    : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                }`}
+              >
+                <ShoppingBag className="w-3.5 h-3.5" /> Joint Register
+              </button>
+
+              {/* Newton Master Control */}
+              {userRole === 'admin' && (
+                <button
+                  id="nav-tab-admin"
+                  onClick={() => setActiveTab('admin')}
+                  className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
+                    activeTab === 'admin' 
+                      ? 'bg-zinc-900 text-white font-bold' 
+                      : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-blue-500" /> Stall Control
+                </button>
+              )}
+            </nav>
+
+            {/* Logout and session details */}
+            <div className="hidden md:flex items-center gap-3">
+              <div className="text-right">
+                <span className="text-xs font-bold text-zinc-900 block leading-tight">
+                  {currentUser.name.split(' ')[0]}
+                </span>
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mt-0.5">
+                  {userRole === 'admin' ? 'Stall Master' : 'Vendor'}
+                </span>
+              </div>
+              <button
+                id="btn-logout-desktop"
+                onClick={handleLogout}
+                className="p-2 bg-zinc-50 hover:bg-red-50 hover:text-red-600 text-zinc-400 rounded-lg transition-colors focus:outline-none border border-zinc-200/40"
+                title="Log Out Securely"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Mobile Menu Hamburger button */}
+            <button
+              id="btn-toggle-mobile-menu"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="md:hidden p-2 text-zinc-600 bg-zinc-50 hover:bg-zinc-100 rounded-lg transition-colors focus:outline-none border border-zinc-200/50"
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile menu collapsible */}
+        {mobileMenuOpen && (
+          <div className="md:hidden border-t border-zinc-200 bg-white px-4 py-3 space-y-2 shadow-inner">
+            <div className="pb-2 mb-2 border-b border-zinc-100 flex justify-between items-center text-xs">
+              <div>
+                <p className="font-bold text-zinc-900">{currentUser.name}</p>
+                <p className="text-[10px] text-zinc-400 font-semibold uppercase tracking-wider">{userRole === 'admin' ? 'Newton Control' : 'Pokemon Vendor'}</p>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="text-[10px] text-red-600 font-bold flex items-center gap-1 bg-red-50 py-1.5 px-3 rounded-lg border border-red-100/50"
+              >
+                <LogOut className="w-3 h-3" /> Log Out
+              </button>
+            </div>
+
+            {userRole === 'vendor' && (
+              <>
+                <button
+                  id="mob-tab-home"
+                  onClick={() => { setActiveTab('home'); setMobileMenuOpen(false); }}
+                  className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
+                    activeTab === 'home' ? 'bg-zinc-100 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+                  }`}
+                >
+                  Dashboard Home
+                </button>
+                <button
+                  id="mob-tab-stock"
+                  onClick={() => { setActiveTab('stock'); setMobileMenuOpen(false); }}
+                  className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
+                    activeTab === 'stock' ? 'bg-zinc-100 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+                  }`}
+                >
+                  Stock Catalog
+                </button>
+                <button
+                  id="mob-tab-trades"
+                  onClick={() => { setActiveTab('trades'); setMobileMenuOpen(false); }}
+                  className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
+                    activeTab === 'trades' ? 'bg-zinc-100 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+                  }`}
+                >
+                  P2P Trades
+                </button>
+                <button
+                  id="mob-tab-payouts"
+                  onClick={() => { setActiveTab('payouts'); setMobileMenuOpen(false); }}
+                  className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
+                    activeTab === 'payouts' ? 'bg-zinc-100 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+                  }`}
+                >
+                  Payout & Trade-In
+                </button>
+              </>
+            )}
+
+            <button
+              id="mob-tab-staff"
+              onClick={() => { setActiveTab('staff'); setMobileMenuOpen(false); }}
+              className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
+                activeTab === 'staff' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+              }`}
+            >
+              Joint Staff Register
+            </button>
+
+            {userRole === 'admin' && (
+              <button
+                id="mob-tab-admin"
+                onClick={() => { setActiveTab('admin'); setMobileMenuOpen(false); }}
+                className={`w-full py-2.5 px-4 rounded-md text-xs font-bold text-left block ${
+                  activeTab === 'admin' ? 'bg-zinc-900 text-white' : 'text-zinc-500'
+                }`}
+              >
+                Newton Master Control
+              </button>
+            )}
+          </div>
+        )}
+      </header>
+
+      {/* Main Workspace Frame */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        {/* Sync loading indicator */}
+        <div className="flex justify-between items-center mb-6">
+          <span className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5">
+            Newton's Collectables Management Ledger
+          </span>
+          <button
+            id="btn-sync-state"
+            onClick={refreshAppState}
+            className="text-zinc-500 hover:text-zinc-800 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 bg-white py-1.5 px-3 rounded-md border border-zinc-200 shadow-2xs cursor-pointer transition-all hover:bg-zinc-50"
+          >
+            <RefreshCw className="w-3 h-3" /> Sync Live
+          </button>
+        </div>
+
+        {/* Tab Router Switch */}
+        {userRole === 'vendor' && activeTab === 'home' && activeVendorObject && (
+          <DashboardHome
+            vendor={activeVendorObject}
+            sales={sales}
+            onNavigate={(tab) => setActiveTab(tab)}
+          />
+        )}
+
+        {activeTab === 'staff' && (
+          <JointStaffPage
+            vendors={vendors}
+            stock={stock}
+            sales={sales}
+            onLogSale={handleLogSale}
+          />
+        )}
+
+        {userRole === 'vendor' && activeTab === 'stock' && activeVendorObject && (
+          <StockManager
+            vendor={activeVendorObject}
+            stock={stock}
+            onAddStock={handleAddStock}
+          />
+        )}
+
+        {userRole === 'vendor' && activeTab === 'trades' && activeVendorObject && (
+          <TradeProposalManager
+            vendor={activeVendorObject}
+            vendors={vendors}
+            trades={trades}
+            onProposeTrade={handleProposeTrade}
+            onRespondTrade={handleRespondTrade}
+          />
+        )}
+
+        {userRole === 'vendor' && activeTab === 'payouts' && activeVendorObject && (
+          <CashoutAndTradeIn
+            vendor={activeVendorObject}
+            sales={sales}
+            cashouts={cashouts}
+            tradeIns={tradeIns}
+            onRequestCashout={handleRequestCashout}
+            onAddTradeIn={handleAddTradeIn}
+          />
+        )}
+
+        {userRole === 'admin' && activeTab === 'admin' && (
+          <MasterControl
+            vendors={vendors}
+            sales={sales}
+            cashouts={cashouts}
+            tradeIns={tradeIns}
+            onUpdateVendor={handleUpdateVendor}
+            onRespondCashout={handleRespondCashout}
+            onRespondTradeIn={handleRespondTradeIn}
+          />
+        )}
+
+      </main>
+
+      {/* Styled simple footer */}
+      <footer className="bg-white border-t border-zinc-200 py-6 text-center text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
+        Newton's Collectables • Saturday & Wednesday • Bury St Edmunds Pokémon Market Stall
+      </footer>
+    </div>
+  );
+}

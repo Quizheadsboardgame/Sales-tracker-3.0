@@ -1,0 +1,6 @@
+{
+  "name": "Newtons Collectables",
+  "description": "Clean, mobile-optimized stall management platform for Pokemon vendors at Newton's Collectables. Features individual PIN logins, sales tracking, automated commission calculation, stock search, cash-out maturation, trade-in logs, and vendor-to-vendor trade negotiations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
