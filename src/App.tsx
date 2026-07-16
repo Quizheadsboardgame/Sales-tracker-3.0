@@ -43,8 +43,15 @@ export default function App() {
   const [pinError, setPinError] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Syncing states
+  const [lastSynced, setLastSynced] = useState<Date | null>(new Date());
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
   // Load Entire State from backend
   const refreshAppState = async () => {
+    setIsSyncing(true);
+    setSyncError(null);
     try {
       const res = await fetch('/api/state');
       if (res.ok) {
@@ -55,10 +62,15 @@ export default function App() {
         setTrades(data.trades || []);
         setCashouts(data.cashouts || []);
         setTradeIns(data.tradeIns || []);
+        setLastSynced(new Date());
+      } else {
+        setSyncError("Failed to fetch state from network");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error synchronizing with state database", err);
+      setSyncError(err.message || "Network Sync failed");
     } finally {
+      setIsSyncing(false);
       setIsLoadingState(false);
     }
   };
@@ -555,49 +567,83 @@ export default function App() {
             </nav>
 
             {/* Logout and session details / Login Button */}
-            {currentUser ? (
-              <div className="hidden md:flex items-center gap-3">
-                <div className="text-right">
-                  <span className="text-xs font-bold text-zinc-900 block leading-tight">
-                    {currentUser.name.split(' ')[0]}
-                  </span>
-                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mt-0.5">
-                    {userRole === 'admin' ? 'Stall Master' : 'Vendor'}
-                  </span>
-                </div>
-                <button
-                  id="btn-logout-desktop"
-                  onClick={handleLogout}
-                  className="p-2 bg-zinc-50 hover:bg-red-50 hover:text-red-600 text-zinc-400 rounded-lg transition-colors focus:outline-none border border-zinc-200/40"
-                  title="Log Out Securely"
+            <div className="flex items-center gap-2">
+              {/* Header Sync Status & Button - Desktop only */}
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-zinc-50 border border-zinc-200/60 rounded-xl text-[10px] text-zinc-500 font-bold mr-2 select-none">
+                <span className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-blue-500 animate-pulse' : syncError ? 'bg-red-500' : 'bg-green-500'}`} />
+                <span className="uppercase tracking-wider">
+                  {isSyncing ? 'Syncing...' : syncError ? 'Sync Error' : 'Cloud Connected'}
+                </span>
+                <span className="text-zinc-300">|</span>
+                <span className="text-[9px] text-zinc-400">
+                  {lastSynced ? lastSynced.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Never'}
+                </span>
+                <button 
+                  id="btn-header-sync"
+                  onClick={refreshAppState} 
+                  disabled={isSyncing} 
+                  className="hover:text-zinc-900 text-zinc-400 hover:bg-zinc-200/50 p-1 rounded-md transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
+                  title="Force Sync All Devices"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-600' : ''}`} />
                 </button>
               </div>
-            ) : (
-              <div className="hidden md:flex items-center">
-                <button
-                  id="btn-login-desktop"
-                  onClick={() => setActiveTab('login')}
-                  className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all flex items-center gap-2 cursor-pointer ${
-                    activeTab === 'login'
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                      : 'bg-white text-zinc-700 border-zinc-200 hover:border-zinc-300'
-                  }`}
-                >
-                  <ShieldCheck className="w-4 h-4" /> Log In
-                </button>
-              </div>
-            )}
 
-            {/* Mobile Menu Hamburger button */}
-            <button
-              id="btn-toggle-mobile-menu"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2 text-zinc-600 bg-zinc-50 hover:bg-zinc-100 rounded-lg transition-colors focus:outline-none border border-zinc-200/50"
-            >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
+              {currentUser ? (
+                <div className="hidden md:flex items-center gap-3">
+                  <div className="text-right">
+                    <span className="text-xs font-bold text-zinc-900 block leading-tight">
+                      {currentUser.name.split(' ')[0]}
+                    </span>
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mt-0.5">
+                      {userRole === 'admin' ? 'Stall Master' : 'Vendor'}
+                    </span>
+                  </div>
+                  <button
+                    id="btn-logout-desktop"
+                    onClick={handleLogout}
+                    className="p-2 bg-zinc-50 hover:bg-red-50 hover:text-red-600 text-zinc-400 rounded-lg transition-colors focus:outline-none border border-zinc-200/40 cursor-pointer"
+                    title="Log Out Securely"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="hidden md:flex items-center">
+                  <button
+                    id="btn-login-desktop"
+                    onClick={() => setActiveTab('login')}
+                    className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all flex items-center gap-2 cursor-pointer ${
+                      activeTab === 'login'
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                        : 'bg-white text-zinc-700 border-zinc-200 hover:border-zinc-300'
+                    }`}
+                  >
+                    <ShieldCheck className="w-4 h-4" /> Log In
+                  </button>
+                </div>
+              )}
+
+              {/* Mobile Sync Icon Button (Always visible on mobile phone headers next to hamburger!) */}
+              <button
+                id="btn-sync-mobile"
+                onClick={refreshAppState}
+                disabled={isSyncing}
+                className="md:hidden p-2 text-zinc-600 bg-zinc-50 hover:bg-zinc-100 disabled:opacity-50 rounded-lg transition-colors focus:outline-none border border-zinc-200/50 flex items-center justify-center cursor-pointer text-zinc-500"
+                title={`Last Synced: ${lastSynced ? lastSynced.toLocaleTimeString() : 'Never'}`}
+              >
+                <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin text-blue-600' : ''}`} />
+              </button>
+
+              {/* Mobile Menu Hamburger button */}
+              <button
+                id="btn-toggle-mobile-menu"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="md:hidden p-2 text-zinc-600 bg-zinc-50 hover:bg-zinc-100 rounded-lg transition-colors focus:outline-none border border-zinc-200/50"
+              >
+                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -704,18 +750,55 @@ export default function App() {
       {/* Main Workspace Frame */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
-        {/* Sync loading indicator */}
-        <div className="flex justify-between items-center mb-6">
-          <span className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5">
-            Newton's Collectables Management Ledger
-          </span>
-          <button
-            id="btn-sync-state"
-            onClick={refreshAppState}
-            className="text-zinc-500 hover:text-zinc-800 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 bg-white py-1.5 px-3 rounded-md border border-zinc-200 shadow-2xs cursor-pointer transition-all hover:bg-zinc-50"
-          >
-            <RefreshCw className="w-3 h-3" /> Sync Live
-          </button>
+        {/* Enhanced Sync Information & Share Center */}
+        <div className="mb-6 bg-white border border-zinc-200 rounded-xl p-4 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all duration-300">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className={`p-2 rounded-lg shrink-0 ${isSyncing ? 'bg-blue-50 text-blue-600' : syncError ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+              <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4 className="text-xs font-black text-zinc-800 uppercase tracking-wide">Multi-Device Cloud Sync</h4>
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
+                  isSyncing 
+                    ? 'bg-blue-50 text-blue-600 border border-blue-100 animate-pulse' 
+                    : syncError 
+                      ? 'bg-red-50 text-red-600 border border-red-100' 
+                      : 'bg-green-50 text-green-600 border border-green-100'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-blue-500' : syncError ? 'bg-red-500' : 'bg-green-500'}`} />
+                  {isSyncing ? 'Syncing...' : syncError ? 'Sync Error' : 'Live Connected'}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
+                {syncError ? (
+                  <span className="text-red-600 font-semibold">Error: {syncError}. Tap force sync to reconnect.</span>
+                ) : (
+                  <>
+                    All logged sales, trade-ins, and stock are shared across devices instantly via Google Firestore Cloud.
+                    <span className="font-extrabold text-zinc-700 ml-1.5 bg-zinc-100 px-2 py-0.5 rounded-md inline-block sm:inline">
+                      Last Synced: {lastSynced ? lastSynced.toLocaleTimeString() : 'Never'}
+                    </span>
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              id="btn-sync-state-enhanced"
+              onClick={refreshAppState}
+              disabled={isSyncing}
+              className={`px-4 py-2 text-xs font-extrabold rounded-lg border cursor-pointer transition-all flex items-center justify-center gap-1.5 w-full sm:w-auto uppercase tracking-wide ${
+                isSyncing
+                  ? 'bg-zinc-50 text-zinc-400 border-zinc-200'
+                  : 'bg-zinc-950 text-white border-zinc-950 hover:bg-zinc-800 active:scale-95 shadow-xs'
+              }`}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+              {isSyncing ? 'Syncing...' : 'Force Cloud Sync'}
+            </button>
+          </div>
         </div>
 
         {/* Stall Control Active Preview Banner */}
