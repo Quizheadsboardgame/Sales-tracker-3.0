@@ -134,9 +134,10 @@ const saveState = async () => {
       });
       await batch.commit();
       console.log("State written to Firestore successfully!");
-    } else {
-      broadcastUpdate();
     }
+
+    // Always broadcast update to all connected SSE clients
+    broadcastUpdate();
   } catch (err) {
     console.error("Error writing database file and creating backups", err);
   }
