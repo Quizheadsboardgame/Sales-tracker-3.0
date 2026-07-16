@@ -1,11 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShoppingBag, Search, Plus, Check, CheckCircle2, RefreshCw, Sparkles, UserCheck, Calendar, Trash2, Edit2, X } from 'lucide-react';
-import { StockItem, Vendor, Sale } from '../types';
+import { StockItem, Vendor, Sale, CashoutRequest, TradeIn } from '../types';
+import { isSaleMature } from '../payoutUtils';
 
 interface JointStaffPageProps {
   vendors: Vendor[];
   stock: StockItem[];
   sales: Sale[];
+  cashouts: CashoutRequest[];
+  tradeIns: TradeIn[];
   onLogSale: (saleData: {
     vendorId: string;
     itemName?: string;
@@ -38,6 +41,8 @@ export default function JointStaffPage({
   vendors, 
   stock, 
   sales, 
+  cashouts,
+  tradeIns,
   onLogSale,
   userRole,
   adminViewingVendorId,
@@ -85,6 +90,51 @@ export default function JointStaffPage({
   const [includeTradeIn, setIncludeTradeIn] = useState(false);
   const [tradeInDetails, setTradeInDetails] = useState('');
   const [tradeInAmount, setTradeInAmount] = useState('');
+
+  // Approval state variables
+  const [approvalPin, setApprovalPin] = useState('');
+  const [owenApproved, setOwenApproved] = useState(false);
+  const [pinErrorMsg, setPinErrorMsg] = useState<string | null>(null);
+
+  // Reset approval states when vendor or trade-in setup is modified
+  useEffect(() => {
+    setApprovalPin('');
+    setOwenApproved(false);
+    setPinErrorMsg(null);
+  }, [selectedVendorId, includeTradeIn]);
+
+  // Helper to calculate consolidated balance for any vendor ID
+  const calculateConsolidatedBalance = (vendorId: string): number => {
+    const vendor = vendors.find(v => v.id === vendorId);
+    if (!vendor) return 0;
+
+    const vendorSales = sales.filter((s) => s.vendorId === vendorId);
+    
+    let availableCash = 0;
+    let pendingCash = 0;
+    const now = new Date();
+
+    vendorSales.forEach((sale) => {
+      if (sale.cashedOut) {
+        // fully paid, not in balance
+      } else if (sale.cashoutRequestId) {
+        // If it has a cashout request (pending or approved but not cleared), it's not available
+      } else {
+        if (isSaleMature(sale.date, now)) {
+          availableCash += sale.vendorEarnings;
+        } else {
+          pendingCash += sale.vendorEarnings;
+        }
+      }
+    });
+
+    const vendorCashouts = cashouts ? cashouts.filter((c) => c.vendorId === vendorId) : [];
+    const pendingCashoutsAmount = vendorCashouts
+      .filter((c) => c.status === 'pending')
+      .reduce((sum, c) => sum + c.amount, 0);
+
+    return availableCash + pendingCash + (vendor.tradeCredit || 0) + pendingCashoutsAmount;
+  };
 
   // Multiple items state (Sale Basket)
   const [saleItems, setSaleItems] = useState<Array<{
@@ -349,6 +399,25 @@ export default function JointStaffPage({
   const totalPriceVal = saleItems.reduce((sum, item) => sum + item.price, 0) + (isCurrentInputFilled ? currentPriceNum : 0);
   const tradeInAmountNum = includeTradeIn ? (Number(tradeInAmount) || 0) : 0;
   const netPriceVal = totalPriceVal - tradeInAmountNum;
+
+  const selectedVendorBalance = selectedVendorId ? calculateConsolidatedBalance(selectedVendorId) : 0;
+  const enteredTradeInAmount = Number(tradeInAmount) || 0;
+  const willBeNegative = includeTradeIn && enteredTradeInAmount > 0 && (selectedVendorBalance - enteredTradeInAmount < 0);
+
+  const handleApprovalPinChange = (val: string) => {
+    setApprovalPin(val);
+    if (val === '9999') {
+      setOwenApproved(true);
+      setPinErrorMsg(null);
+    } else {
+      setOwenApproved(false);
+      if (val.length === 4) {
+        setPinErrorMsg('Incorrect pin.');
+      } else {
+        setPinErrorMsg(null);
+      }
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -678,6 +747,58 @@ export default function JointStaffPage({
                       ⚠️ Deducts from {vendors.find(v => v.id === selectedVendorId)?.name}'s trade credit balance.
                     </span>
                   )}
+
+                  {includeTradeIn && selectedVendorId && selectedVendorBalance < 100 && !willBeNegative && (
+                    <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-lg p-3.5 mt-3 space-y-1 animate-in fade-in duration-200">
+                      <p className="font-extrabold text-amber-950 flex items-center gap-1">
+                        ⚠️ Balance Low
+                      </p>
+                      <p>
+                        This vendor's consolidated stall balance is low: <strong className="font-extrabold text-amber-950">£{selectedVendorBalance.toFixed(2)}</strong>.
+                      </p>
+                    </div>
+                  )}
+
+                  {willBeNegative && (
+                    <div className="bg-red-50 border border-red-200 text-red-800 text-xs rounded-lg p-4 mt-3 space-y-3 animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <p className="font-extrabold text-red-950 uppercase tracking-wider flex items-center gap-1">
+                          ⚠️ Owen's Approval Required
+                        </p>
+                        <p>
+                          This trade-in will put the vendor's consolidated stall balance into negative: <strong className="font-extrabold text-red-950">£{(selectedVendorBalance - enteredTradeInAmount).toFixed(2)}</strong>. Current consolidated balance: <strong>£{selectedVendorBalance.toFixed(2)}</strong>.
+                        </p>
+                      </div>
+
+                      {!owenApproved ? (
+                        <div className="space-y-2 pt-2 border-t border-red-200/60">
+                          <label className="text-[10px] font-extrabold text-red-900 uppercase tracking-widest block">
+                            Enter Stall Controls PIN to Approve
+                          </label>
+                          <div className="flex gap-2">
+                            <input
+                              type="password"
+                              placeholder="••••"
+                              maxLength={4}
+                              value={approvalPin}
+                              onChange={(e) => handleApprovalPinChange(e.target.value)}
+                              className="bg-white border border-red-300 focus:outline-none focus:ring-2 focus:ring-red-100 focus:border-red-600 text-xs font-black tracking-widest text-center rounded-lg py-2 px-3 w-28"
+                            />
+                            {pinErrorMsg && (
+                              <span className="text-[10px] text-red-700 font-extrabold self-center">
+                                {pinErrorMsg}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 bg-green-50 border border-green-200 text-green-800 px-3 py-2 rounded-lg text-xs font-bold animate-in zoom-in-95 duration-150">
+                          <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
+                          Owen's Approval Granted!
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -686,7 +807,7 @@ export default function JointStaffPage({
           <button
             id="btn-submit-sale"
             type="submit"
-            disabled={isSubmitting || !selectedVendorId || (totalItemsCount === 0 && (!includeTradeIn || !tradeInAmount || isNaN(Number(tradeInAmount)) || Number(tradeInAmount) <= 0))}
+            disabled={isSubmitting || !selectedVendorId || (totalItemsCount === 0 && (!includeTradeIn || !tradeInAmount || isNaN(Number(tradeInAmount)) || Number(tradeInAmount) <= 0)) || (willBeNegative && !owenApproved)}
             className="w-full py-3 bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-950 text-white rounded-lg text-xs font-bold tracking-wide shadow-xs transition-colors flex items-center justify-center gap-2 focus:outline-none disabled:opacity-50 cursor-pointer"
           >
             {isSubmitting ? (

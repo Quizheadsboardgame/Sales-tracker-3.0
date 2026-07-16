@@ -262,7 +262,9 @@ app.get("/api/updates", (req, res) => {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
-    "Connection": "keep-alive"
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+    "Content-Encoding": "none"
   });
 
   // Send initial handshake
@@ -275,6 +277,7 @@ app.get("/api/updates", (req, res) => {
   // Client connection teardown
   req.on("close", () => {
     sseClients = sseClients.filter((c) => c.id !== clientId);
+    res.end();
   });
 });
 

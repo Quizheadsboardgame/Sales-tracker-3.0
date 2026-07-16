@@ -732,6 +732,8 @@ export default function App() {
             vendors={vendors}
             stock={stock}
             sales={sales}
+            cashouts={cashouts}
+            tradeIns={tradeIns}
             onLogSale={handleLogSale}
             userRole={userRole}
             adminViewingVendorId={adminViewingVendorId}
