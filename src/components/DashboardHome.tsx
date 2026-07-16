@@ -1,6 +1,7 @@
 import React from 'react';
 import { TrendingUp, DollarSign, Clock, Coins, Percent, ArrowUpRight, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { Sale, Vendor } from '../types';
+import { isSaleMature, getRemainingDays, getPayoutDate } from '../payoutUtils';
 
 interface DashboardHomeProps {
   vendor: Vendor;
@@ -12,9 +13,7 @@ export default function DashboardHome({ vendor, sales, onNavigate }: DashboardHo
   // Filter sales for this vendor
   const vendorSales = sales.filter((s) => s.vendorId === vendor.id);
 
-  // Time calculations based on 2-week payout maturation
-  const MS_PER_DAY = 24 * 60 * 60 * 1000;
-  const TWO_WEEKS_MS = 14 * MS_PER_DAY;
+  // Time calculations based on dynamic payout maturation
   const now = new Date("2026-07-14T06:28:56-07:00"); // current local time injected
 
   // Today's Sales (Wednesday or Saturday are busy market days!)
@@ -42,9 +41,7 @@ export default function DashboardHome({ vendor, sales, onNavigate }: DashboardHo
       // If it has a cashout request (pending or approved but not cleared), it's not available
       // but let's see, pending requests are kept track of.
     } else {
-      const saleTime = new Date(sale.date).getTime();
-      const ageMs = now.getTime() - saleTime;
-      if (ageMs >= TWO_WEEKS_MS) {
+      if (isSaleMature(sale.date, now)) {
         availableCash += sale.vendorEarnings;
       } else {
         pendingCash += sale.vendorEarnings;
@@ -61,10 +58,13 @@ export default function DashboardHome({ vendor, sales, onNavigate }: DashboardHo
       {/* Welcome Banner in Geometric Balance style */}
       <div className="bg-zinc-900 text-white rounded-xl p-6 border border-zinc-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-sm relative overflow-hidden">
         <div className="relative z-10">
-          <span className="bg-blue-600 text-white text-[9px] font-extrabold px-2.5 py-1 rounded uppercase tracking-wider">
+          <span className="text-white text-[9px] font-extrabold px-2.5 py-1 rounded uppercase tracking-wider" style={{ backgroundColor: vendor.color || '#2563EB' }}>
             Active Vendor Session
           </span>
-          <h2 className="text-xl font-bold mt-2 tracking-tight text-white">{vendor.name}</h2>
+          <div className="flex items-center gap-2.5 mt-2">
+            <div className="w-3.5 h-3.5 rounded-full border border-white/20 shadow-xs shrink-0" style={{ backgroundColor: vendor.color || '#64748B' }} />
+            <h2 className="text-xl font-bold tracking-tight text-white">{vendor.name}</h2>
+          </div>
           <p className="text-zinc-400 text-xs mt-1">
             Personal commission structure: <span className="text-blue-400 font-bold">{(vendor.commission * 100).toFixed(0)}% Newton Commission</span> for stall space.
           </p>
@@ -76,13 +76,6 @@ export default function DashboardHome({ vendor, sales, onNavigate }: DashboardHo
             className="flex-1 md:flex-none px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5"
           >
             Log Sales
-          </button>
-          <button
-            id="btn-goto-trades"
-            onClick={() => onNavigate('trades')}
-            className="flex-1 md:flex-none px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm"
-          >
-            P2P Trades
           </button>
         </div>
       </div>
@@ -142,7 +135,7 @@ export default function DashboardHome({ vendor, sales, onNavigate }: DashboardHo
               <Clock className="w-4 h-4 text-zinc-600" />
             </div>
             <span className="text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200/50 px-2 py-0.5 rounded uppercase">
-              &lt; 14d
+              Hold
             </span>
           </div>
           <div className="mt-4">
@@ -153,7 +146,7 @@ export default function DashboardHome({ vendor, sales, onNavigate }: DashboardHo
               £{pendingCash.toFixed(2)}
             </span>
             <span className="text-[10px] font-semibold text-zinc-400 block mt-1">
-              Matures 2 weeks post-sale
+              Matures Fri (13-16d hold)
             </span>
           </div>
         </div>
@@ -176,7 +169,7 @@ export default function DashboardHome({ vendor, sales, onNavigate }: DashboardHo
               £{vendor.tradeCredit.toFixed(2)}
             </span>
             <span className="text-[10px] font-semibold text-zinc-400 block mt-1">
-              For stall & peer trades
+              For stall & customer trade-ins
             </span>
           </div>
         </div>
@@ -228,10 +221,9 @@ export default function DashboardHome({ vendor, sales, onNavigate }: DashboardHo
               </thead>
               <tbody className="divide-y divide-zinc-100">
                 {vendorSales.slice().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((sale) => {
-                  const saleTime = new Date(sale.date).getTime();
-                  const ageMs = now.getTime() - saleTime;
-                  const daysRemaining = Math.max(0, Math.ceil((TWO_WEEKS_MS - ageMs) / MS_PER_DAY));
-                  const isMature = ageMs >= TWO_WEEKS_MS;
+                  const isMature = isSaleMature(sale.date, now);
+                  const daysRemaining = getRemainingDays(sale.date, now);
+                  const payoutDateObj = getPayoutDate(sale.date);
 
                   return (
                     <tr key={sale.id} className="text-xs hover:bg-zinc-50/50 transition-colors">
@@ -274,12 +266,12 @@ export default function DashboardHome({ vendor, sales, onNavigate }: DashboardHo
                             Payout Pending
                           </span>
                         ) : isMature ? (
-                          <span className="inline-flex items-center gap-1 text-[9px] font-bold text-blue-600 bg-blue-50 border border-blue-200/40 px-2.5 py-0.5 rounded">
+                          <span className="inline-flex items-center gap-1 text-[9px] font-bold text-blue-600 bg-blue-50 border border-blue-200/40 px-2.5 py-0.5 rounded" title={`Payout date: ${payoutDateObj.toLocaleDateString('en-GB')}`}>
                             Ready
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[9px] font-bold text-zinc-500 bg-zinc-100 border border-zinc-200/40 px-2.5 py-0.5 rounded">
-                            Matures in {daysRemaining}d
+                          <span className="inline-flex items-center gap-1 text-[9px] font-bold text-zinc-500 bg-zinc-100 border border-zinc-200/40 px-2.5 py-0.5 rounded" title={`Payout date: ${payoutDateObj.toLocaleDateString('en-GB')}`}>
+                            Matures in {daysRemaining}d (Fri)
                           </span>
                         )}
                       </td>
@@ -297,7 +289,7 @@ export default function DashboardHome({ vendor, sales, onNavigate }: DashboardHo
         <ShieldCheck className="w-5 h-5 text-zinc-400 shrink-0 mt-0.5" />
         <div className="text-xs text-zinc-500 space-y-1">
           <p className="font-bold text-zinc-600">Secure Newton's Ledger Rules</p>
-          <p>Sales are permanently logged with timestamps. Commission amounts are locked at the precise moment of sale. The 2-week payout hold is an operational constant, ensuring full transaction transparency and security for Newton's Collectables.</p>
+          <p>Sales are permanently logged with timestamps. Payouts are made on Fridays: Wednesday sales are paid 16 days later, and Saturday sales 13 days later. This protects business cash flow if card trade-ins are executed instead of standard cash sales.</p>
         </div>
       </div>
     </div>

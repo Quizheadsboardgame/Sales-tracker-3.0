@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { DollarSign, Coins, Clock, ArrowRight, ClipboardList, CheckCircle2, RefreshCw, Plus, Send, HelpCircle } from 'lucide-react';
 import { CashoutRequest, TradeIn, Sale, Vendor } from '../types';
+import { isSaleMature } from '../payoutUtils';
 
 interface CashoutAndTradeInProps {
   vendor: Vendor;
@@ -38,22 +39,18 @@ export default function CashoutAndTradeIn({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Math for Payout Maturation
-  const MS_PER_DAY = 24 * 60 * 60 * 1000;
-  const TWO_WEEKS_MS = 14 * MS_PER_DAY;
   const now = new Date("2026-07-14T06:28:56-07:00");
 
   const vendorSales = sales.filter((s) => s.vendorId === vendor.id);
 
-  // Eligible Sales (>= 14 days, not cashed out, no cashout request pending)
+  // Eligible Sales (not cashed out, no cashout request pending, mature on designated Friday)
   let availableCash = 0;
   let pendingCash = 0;
   let matureSalesCount = 0;
 
   vendorSales.forEach((sale) => {
     if (!sale.cashedOut && !sale.cashoutRequestId) {
-      const saleTime = new Date(sale.date).getTime();
-      const ageMs = now.getTime() - saleTime;
-      if (ageMs >= TWO_WEEKS_MS) {
+      if (isSaleMature(sale.date, now)) {
         availableCash += sale.vendorEarnings;
         matureSalesCount++;
       } else {
@@ -182,7 +179,7 @@ export default function CashoutAndTradeIn({
               <span className="text-emerald-600">£{availableCash.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-xs font-bold">
-              <span className="text-zinc-500">Locked Pending (14d):</span>
+              <span className="text-zinc-500">Locked Pending (Fri):</span>
               <span className="text-amber-600">£{pendingCash.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-xs font-bold pt-1 border-t border-zinc-200">
@@ -213,7 +210,7 @@ export default function CashoutAndTradeIn({
           <div className="space-y-6">
             <div className="space-y-1">
               <h3 className="text-base font-black text-zinc-950 tracking-tight">Withdraw Mature Stall Funds</h3>
-              <p className="text-xs text-zinc-500 font-medium">Newton's Collectables enforces a strict 2-week payout maturation to protect against credit fraud and return claims.</p>
+              <p className="text-xs text-zinc-500 font-medium">Newton's Collectables pays out on Fridays: Wednesday sales are paid 16 days later, and Saturday sales 13 days later. This protects business cash flow if card trade-ins are executed instead of cash sales.</p>
             </div>
 
             {/* Quick cashout calculator */}

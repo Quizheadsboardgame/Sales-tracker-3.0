@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Users, Percent, PercentIcon, DollarSign, Coins, TrendingUp, Check, X, RefreshCw, Edit2, Plus, Sparkles, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Users, Percent, PercentIcon, DollarSign, Coins, TrendingUp, Check, X, RefreshCw, Edit2, Plus, Sparkles, AlertCircle, Search, Calendar, Trash2 } from 'lucide-react';
 import { Vendor, Sale, CashoutRequest, TradeIn } from '../types';
 
 interface MasterControlProps {
@@ -12,9 +12,18 @@ interface MasterControlProps {
     name: string;
     pin: string;
     commission: number;
+    color?: string;
   }) => Promise<void>;
   onRespondCashout: (cashoutId: string, status: 'approved' | 'declined') => Promise<void>;
   onRespondTradeIn: (tradeInId: string, status: 'approved' | 'declined', finalCredit?: number) => Promise<void>;
+  onUpdateSale: (saleId: string, saleData: {
+    vendorId: string;
+    itemName: string;
+    price: number;
+    date: string;
+  }) => Promise<void>;
+  onDeleteSale: (saleId: string) => Promise<void>;
+  onViewVendorProfile?: (vendorId: string) => void;
 }
 
 export default function MasterControl({
@@ -24,19 +33,123 @@ export default function MasterControl({
   tradeIns,
   onUpdateVendor,
   onRespondCashout,
-  onRespondTradeIn
+  onRespondTradeIn,
+  onUpdateSale,
+  onDeleteSale,
+  onViewVendorProfile
 }: MasterControlProps) {
+  const getVendorColorEmoji = (color?: string): string => {
+    if (!color) return '⚪';
+    const hex = color.toUpperCase();
+    if (hex === '#10B981' || hex.includes('GREEN') || hex === '#22C55E') return '🟢';
+    if (hex === '#F59E0B' || hex.includes('ORANGE') || hex === '#F97316') return '🟠';
+    if (hex === '#FFFFFF' || hex.includes('WHITE')) return '⚪';
+    if (hex === '#EC4899' || hex === '#F43F5E' || hex.includes('PINK') || hex.includes('ROSE')) return '🌸';
+    if (hex === '#FACC15' || hex === '#EAB308' || hex.includes('YELLOW')) return '🟡';
+    if (hex === '#64748B' || hex === '#71717A' || hex === '#737373' || hex.includes('SLATE') || hex.includes('GRAY') || hex.includes('GREY')) return '⚫';
+    if (hex === '#3B82F6' || hex === '#06B6D4' || hex === '#0EA5E9' || hex.includes('BLUE') || hex.includes('TEAL') || hex.includes('CYAN')) return '🔵';
+    if (hex === '#EF4444' || hex.includes('RED')) return '🔴';
+    if (hex === '#8B5CF6' || hex === '#A855F7' || hex.includes('PURPLE')) return '🟣';
+    return '⚫';
+  };
+
   // Tabs for Master Control
-  const [activeTab, setActiveTab] = useState<'vendors' | 'cashouts' | 'tradeins'>('vendors');
+  const [activeTab, setActiveTab] = useState<'vendors' | 'cashouts' | 'tradeins' | 'sales'>('vendors');
 
   // Edit vendor modal form state
   const [editingVendorId, setEditingVendorId] = useState<string | null>(null);
   const [vName, setVName] = useState('');
   const [vPin, setVPin] = useState('');
   const [vComm, setVComm] = useState('');
+  const [vColor, setVColor] = useState('#64748B');
 
   // Create new vendor state
   const [showCreateForm, setShowCreateForm] = useState(false);
+
+  // Edit/delete sale states & handlers
+  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
+  const [saleVendorId, setSaleVendorId] = useState('');
+  const [saleItemName, setSaleItemName] = useState('');
+  const [salePrice, setSalePrice] = useState('');
+  const [saleDate, setSaleDate] = useState('');
+
+  const [salesSearchQuery, setSalesSearchQuery] = useState('');
+  const [salesFilterVendorId, setSalesFilterVendorId] = useState('');
+  const [deletingSaleId, setDeletingSaleId] = useState<string | null>(null);
+
+  // Filtered & sorted sales
+  const filteredSales = sales
+    .filter((sale) => {
+      const matchSearch = sale.itemName.toLowerCase().includes(salesSearchQuery.toLowerCase()) ||
+                          sale.vendorName.toLowerCase().includes(salesSearchQuery.toLowerCase());
+      const matchVendor = salesFilterVendorId ? sale.vendorId === salesFilterVendorId : true;
+      return matchSearch && matchVendor;
+    })
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const handleStartEditSale = (sale: Sale) => {
+    setEditingSaleId(sale.id);
+    setSaleVendorId(sale.vendorId);
+    setSaleItemName(sale.itemName);
+    setSalePrice(sale.price.toString());
+    
+    // Format date properly for datetime-local (YYYY-MM-DDTHH:MM)
+    const d = new Date(sale.date);
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    const localISODate = new Date(d.getTime() - tzOffset).toISOString().slice(0, 16);
+    setSaleDate(localISODate);
+  };
+
+  const handleSaveSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+
+    if (!saleVendorId || !saleItemName.trim() || !salePrice) {
+      setError("Please fill out all fields.");
+      return;
+    }
+
+    const priceNum = Number(salePrice);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      setError("Price must be a valid number greater than 0.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await onUpdateSale(editingSaleId || '', {
+        vendorId: saleVendorId,
+        itemName: saleItemName,
+        price: priceNum,
+        date: new Date(saleDate).toISOString()
+      });
+
+      setSuccess("Sale updated successfully!");
+      setEditingSaleId(null);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message || "Failed to update sale.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteSaleConfirm = async (saleId: string) => {
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await onDeleteSale(saleId);
+      setSuccess("Sale deleted successfully!");
+      setDeletingSaleId(null);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message || "Failed to delete sale.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // loading / status
   const [loading, setLoading] = useState(false);
@@ -59,6 +172,7 @@ export default function MasterControl({
     setVName(vendor.name);
     setVPin(vendor.pin);
     setVComm((vendor.commission * 100).toString());
+    setVColor(vendor.color || '#64748B');
   };
 
   const handleSaveVendor = async (e: React.FormEvent) => {
@@ -83,7 +197,8 @@ export default function MasterControl({
         id: editingVendorId || '',
         name: vName,
         pin: vPin,
-        commission: Number((commPercent / 100).toFixed(4))
+        commission: Number((commPercent / 100).toFixed(4)),
+        color: vColor
       });
 
       setSuccess("Vendor updated successfully!");
@@ -91,6 +206,7 @@ export default function MasterControl({
       setVName('');
       setVPin('');
       setVComm('');
+      setVColor('#64748B');
       setShowCreateForm(false);
       setTimeout(() => setSuccess(null), 3000);
     } catch (err: any) {
@@ -105,6 +221,7 @@ export default function MasterControl({
     setVName('');
     setVPin('');
     setVComm('10'); // default 10%
+    setVColor('#64748B');
     setShowCreateForm(true);
   };
 
@@ -197,11 +314,11 @@ export default function MasterControl({
       )}
 
       {/* Navigation Sub-tab panel */}
-      <div className="flex border-b border-zinc-200 gap-6">
+      <div className="flex border-b border-zinc-200 gap-6 overflow-x-auto">
         <button
           id="btn-admin-vendors"
           onClick={() => setActiveTab('vendors')}
-          className={`pb-3 text-xs font-bold transition-all relative focus:outline-none ${
+          className={`pb-3 text-xs font-bold transition-all relative whitespace-nowrap focus:outline-none ${
             activeTab === 'vendors' ? 'text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'
           }`}
         >
@@ -211,7 +328,7 @@ export default function MasterControl({
         <button
           id="btn-admin-cashouts"
           onClick={() => setActiveTab('cashouts')}
-          className={`pb-3 text-xs font-bold transition-all relative focus:outline-none ${
+          className={`pb-3 text-xs font-bold transition-all relative whitespace-nowrap focus:outline-none ${
             activeTab === 'cashouts' ? 'text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'
           }`}
         >
@@ -221,12 +338,22 @@ export default function MasterControl({
         <button
           id="btn-admin-tradeins"
           onClick={() => setActiveTab('tradeins')}
-          className={`pb-3 text-xs font-bold transition-all relative focus:outline-none ${
+          className={`pb-3 text-xs font-bold transition-all relative whitespace-nowrap focus:outline-none ${
             activeTab === 'tradeins' ? 'text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'
           }`}
         >
           Trade-In Verifications ({pendingTradeIns.length})
           {activeTab === 'tradeins' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
+        </button>
+        <button
+          id="btn-admin-sales"
+          onClick={() => setActiveTab('sales')}
+          className={`pb-3 text-xs font-bold transition-all relative whitespace-nowrap focus:outline-none ${
+            activeTab === 'sales' ? 'text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'
+          }`}
+        >
+          Sales Ledger ({sales.length})
+          {activeTab === 'sales' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
         </button>
       </div>
 
@@ -251,9 +378,12 @@ export default function MasterControl({
             {vendors.map((v) => (
               <div key={v.id} className="bg-white rounded-xl border border-zinc-200 p-5 shadow-xs flex justify-between items-start">
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-zinc-400 block tracking-widest uppercase">
-                    VENDOR ID: {v.id}
-                  </span>
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-xs shrink-0" style={{ backgroundColor: v.color || '#64748B' }} />
+                    <span className="text-[10px] font-bold text-zinc-400 tracking-widest uppercase">
+                      VENDOR ID: {v.id}
+                    </span>
+                  </div>
                   <h4 className="font-extrabold text-zinc-800 text-sm">{v.name}</h4>
                   
                   <div className="pt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-xs font-semibold text-zinc-500">
@@ -269,13 +399,26 @@ export default function MasterControl({
                   </div>
                 </div>
 
-                <button
-                  id={`btn-edit-vendor-${v.id}`}
-                  onClick={() => handleStartEdit(v)}
-                  className="p-2 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-600 rounded-lg transition-all cursor-pointer"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
+                <div className="flex flex-col gap-1.5 shrink-0 items-end">
+                  <button
+                    id={`btn-edit-vendor-${v.id}`}
+                    onClick={() => handleStartEdit(v)}
+                    className="p-2 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-600 rounded-lg transition-all cursor-pointer"
+                    title="Edit Vendor Configuration"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  {onViewVendorProfile && (
+                    <button
+                      id={`btn-view-vendor-profile-${v.id}`}
+                      onClick={() => onViewVendorProfile(v.id)}
+                      className="px-2 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 font-bold text-[10px] rounded-lg transition-all cursor-pointer uppercase tracking-wider whitespace-nowrap"
+                      title="View Vendor Dashboard & Stock without PIN login"
+                    >
+                      🔍 View Profile
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -403,6 +546,157 @@ export default function MasterControl({
         </div>
       )}
 
+      {/* Panel 4: SALES AUDIT LEDGER */}
+      {activeTab === 'sales' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+            <div>
+              <h3 className="text-sm font-extrabold text-zinc-900 uppercase tracking-wider">Sales Audit Ledger</h3>
+              <p className="text-xs text-zinc-500 font-medium">Audit registered sales, correct mistakes, update owner allocations, or remove invalid records</p>
+            </div>
+          </div>
+
+          {/* Filters Bar */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 bg-zinc-50 p-4 border border-zinc-200 rounded-xl">
+            {/* Search query */}
+            <div>
+              <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block mb-1">Search Item / Vendor</label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-zinc-400" />
+                <input
+                  type="text"
+                  placeholder="Search item, vendor..."
+                  value={salesSearchQuery}
+                  onChange={(e) => setSalesSearchQuery(e.target.value)}
+                  className="w-full bg-white pl-8 pr-3 border border-zinc-200 hover:border-zinc-300 text-xs rounded-lg py-2 outline-none font-medium text-zinc-700 transition-all"
+                />
+              </div>
+            </div>
+
+            {/* Vendor Filter */}
+            <div>
+              <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block mb-1">Filter by Vendor</label>
+              <select
+                value={salesFilterVendorId}
+                onChange={(e) => setSalesFilterVendorId(e.target.value)}
+                className="w-full bg-white border border-zinc-200 hover:border-zinc-300 text-xs rounded-lg py-2 px-3 outline-none font-semibold text-zinc-700 transition-all"
+              >
+                <option value="">All Vendors</option>
+                {vendors.map(v => (
+                  <option key={v.id} value={v.id}>
+                    {getVendorColorEmoji(v.color)} {v.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Total Results Counter */}
+            <div className="flex items-end justify-start sm:justify-end pb-1.5 text-xs font-bold text-zinc-500">
+              Showing {filteredSales.length} of {sales.length} sales
+            </div>
+          </div>
+
+          {filteredSales.length === 0 ? (
+            <div className="py-14 text-center bg-white border border-zinc-200 rounded-xl shadow-xs">
+              <span className="text-xs text-zinc-400 font-bold">No sales match your search criteria</span>
+            </div>
+          ) : (
+            <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-zinc-50 border-b border-zinc-200 text-[10px] font-black text-zinc-400 uppercase tracking-wider">
+                      <th className="py-3 px-4">Date & Time</th>
+                      <th className="py-3 px-4">Item Name</th>
+                      <th className="py-3 px-4">Vendor Name</th>
+                      <th className="py-3 px-4 text-right">Price (£)</th>
+                      <th className="py-3 px-4 text-right">Commission</th>
+                      <th className="py-3 px-4 text-right">Earnings</th>
+                      <th className="py-3 px-4 text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100 text-xs font-medium text-zinc-700">
+                    {filteredSales.map((sale) => (
+                      <tr key={sale.id} className="hover:bg-zinc-50/50 transition-colors">
+                        <td className="py-3.5 px-4 font-semibold text-zinc-500">
+                          {new Date(sale.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })} at{' '}
+                          {new Date(sale.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td className="py-3.5 px-4 font-extrabold text-zinc-800">{sale.itemName}</td>
+                        <td className="py-3.5 px-4">
+                          {(() => {
+                            const vObj = vendors.find((v) => v.id === sale.vendorId);
+                            const vColor = vObj?.color || '#64748B';
+                            return (
+                              <span 
+                                className="inline-flex items-center gap-1.5 border px-2 py-0.5 rounded-full font-extrabold text-[10px]"
+                                style={{
+                                  backgroundColor: `${vColor}10`, // 10% opacity for soft bg
+                                  borderColor: `${vColor}50`, // 50% opacity border
+                                  color: vColor
+                                }}
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: vColor }} />
+                                {sale.vendorName}
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-black text-zinc-900">£{sale.price.toFixed(2)}</td>
+                        <td className="py-3.5 px-4 text-right text-red-600 font-semibold">-£{sale.commissionAmount.toFixed(2)}</td>
+                        <td className="py-3.5 px-4 text-right text-emerald-600 font-bold">£{sale.vendorEarnings.toFixed(2)}</td>
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center justify-center gap-2">
+                            {deletingSaleId === sale.id ? (
+                              <div className="flex items-center gap-1 bg-red-50 border border-red-200 px-2 py-1 rounded-lg">
+                                <span className="text-[10px] text-red-700 font-extrabold mr-1">Delete?</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSaleConfirm(sale.id)}
+                                  className="px-2 py-0.5 bg-red-600 text-white rounded text-[9px] font-bold uppercase tracking-wider cursor-pointer"
+                                >
+                                  Yes
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingSaleId(null)}
+                                  className="px-2 py-0.5 bg-zinc-200 text-zinc-700 rounded text-[9px] font-bold uppercase tracking-wider cursor-pointer"
+                                >
+                                  No
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditSale(sale)}
+                                  className="p-1.5 hover:bg-zinc-100 border border-transparent hover:border-zinc-200 text-zinc-500 hover:text-zinc-800 rounded transition-all cursor-pointer"
+                                  title="Edit Sale"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingSaleId(sale.id)}
+                                  className="p-1.5 hover:bg-red-50 border border-transparent hover:border-red-100 text-zinc-400 hover:text-red-600 rounded transition-all cursor-pointer"
+                                  title="Delete Sale"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Edit/Create Vendor Modal Dialog */}
       {(editingVendorId !== null || showCreateForm) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-100">
@@ -473,6 +767,51 @@ export default function MasterControl({
                 </div>
               </div>
 
+              <div>
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-2">
+                  Vendor Theme Colour Swatch
+                </label>
+                <div className="flex flex-wrap gap-2 items-center bg-zinc-50 p-2.5 rounded-lg border border-zinc-200">
+                  {[
+                    { hex: '#64748B', name: 'Slate' },
+                    { hex: '#EF4444', name: 'Red' },
+                    { hex: '#F59E0B', name: 'Amber' },
+                    { hex: '#FACC15', name: 'Yellow' },
+                    { hex: '#10B981', name: 'Green' },
+                    { hex: '#14B8A6', name: 'Teal' },
+                    { hex: '#3B82F6', name: 'Blue' },
+                    { hex: '#6366F1', name: 'Indigo' },
+                    { hex: '#8B5CF6', name: 'Purple' },
+                    { hex: '#EC4899', name: 'Pink' },
+                    { hex: '#FFFFFF', name: 'White' },
+                  ].map((c) => (
+                    <button
+                      key={c.hex}
+                      type="button"
+                      onClick={() => setVColor(c.hex)}
+                      className={`w-6 h-6 rounded-full cursor-pointer transition-all border-2 ${
+                        vColor === c.hex 
+                          ? 'border-zinc-900 scale-110 shadow-xs' 
+                          : `${c.hex === '#FFFFFF' ? 'border-zinc-300' : 'border-transparent'} hover:scale-105`
+                      }`}
+                      style={{ backgroundColor: c.hex }}
+                      title={c.name}
+                    />
+                  ))}
+                  <div className="w-[1px] h-6 bg-zinc-200 mx-1" />
+                  {/* Custom color picker */}
+                  <div className="relative flex items-center justify-center w-6 h-6 rounded-full overflow-hidden border border-zinc-300 bg-white" title="Custom color picker">
+                    <input
+                      type="color"
+                      value={vColor}
+                      onChange={(e) => setVColor(e.target.value)}
+                      className="absolute inset-0 w-8 h-8 -translate-x-1 -translate-y-1 cursor-pointer p-0 border-0"
+                      title="Custom Color"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="pt-4 border-t border-zinc-200 flex gap-3 justify-end">
                 <button
                   type="button"
@@ -494,6 +833,112 @@ export default function MasterControl({
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                   ) : (
                     "Save Vendor Structure"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Sale Modal Dialog */}
+      {editingSaleId !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-100">
+          <div className="bg-white rounded-xl shadow-lg border border-zinc-200 w-full max-w-sm overflow-hidden">
+            <div className="p-5 border-b border-zinc-200 bg-zinc-50/50 flex justify-between items-center">
+              <h4 className="text-xs font-black text-zinc-900 uppercase tracking-wider">
+                Edit Sale Transaction
+              </h4>
+              <button
+                type="button"
+                onClick={() => setEditingSaleId(null)}
+                className="text-zinc-400 hover:text-zinc-600 font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSale} className="p-6 space-y-4">
+              <div>
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                  Assign Item Owner (Vendor)
+                </label>
+                <select
+                  required
+                  value={saleVendorId}
+                  onChange={(e) => setSaleVendorId(e.target.value)}
+                  className="w-full bg-zinc-50 border border-zinc-200 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-600 text-xs rounded-lg py-2.5 px-3.5 outline-none font-semibold text-zinc-700 transition-all"
+                >
+                  <option value="">-- Select Vendor --</option>
+                  {vendors.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {getVendorColorEmoji(v.color)} {v.name} (Commission: {(v.commission * 100).toFixed(1)}%)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                  Item Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Umbreon VMAX Alt Art"
+                  value={saleItemName}
+                  onChange={(e) => setSaleItemName(e.target.value)}
+                  className="w-full bg-zinc-50 border border-zinc-200 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-600 text-xs rounded-lg py-2.5 px-3.5 outline-none font-semibold text-zinc-700 transition-all"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                    Price (£)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    placeholder="0.00"
+                    value={salePrice}
+                    onChange={(e) => setSalePrice(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-200 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-600 text-xs rounded-lg py-2.5 px-3.5 outline-none font-black text-zinc-700 text-center"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                    Transaction Date
+                  </label>
+                  <input
+                    type="datetime-local"
+                    required
+                    value={saleDate}
+                    onChange={(e) => setSaleDate(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-200 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-600 text-xs rounded-lg py-2.5 px-3.5 outline-none font-bold text-zinc-700 text-center"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-zinc-200 flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setEditingSaleId(null)}
+                  className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 rounded-lg text-xs font-bold text-zinc-700 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="px-5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer"
+                >
+                  {loading ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    "Save Transaction"
                   )}
                 </button>
               </div>

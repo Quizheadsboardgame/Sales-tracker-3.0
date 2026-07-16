@@ -4,6 +4,7 @@ import fs from "fs";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { AppState, Vendor, StockItem, Sale, TradeProposal, CashoutRequest, TradeIn } from "./src/types";
+import { isSaleMature } from "./src/payoutUtils";
 
 dotenv.config();
 
@@ -101,44 +102,47 @@ app.get("/api/state", (req, res) => {
 
 // Update Vendor detail (Admin only)
 app.post("/api/admin/vendors", (req, res) => {
-  const { id, name, pin, commission } = req.body;
+  const { id, name, pin, commission, color } = req.body;
 
-  if (!id) {
-    res.status(400).json({ error: "Vendor ID is required" });
-    return;
+  const targetId = id && id.trim() !== "" ? id : null;
+
+  if (targetId) {
+    const index = state.vendors.findIndex((v) => v.id === targetId);
+    if (index !== -1) {
+      state.vendors[index] = {
+        ...state.vendors[index],
+        name: name !== undefined ? name : state.vendors[index].name,
+        pin: pin !== undefined ? pin : state.vendors[index].pin,
+        commission: commission !== undefined ? Number(commission) : state.vendors[index].commission,
+        color: color !== undefined ? color : state.vendors[index].color,
+      };
+      saveState();
+      res.json({ success: true, vendor: state.vendors[index] });
+      return;
+    }
   }
 
-  const index = state.vendors.findIndex((v) => v.id === id);
-  if (index !== -1) {
-    state.vendors[index] = {
-      ...state.vendors[index],
-      name: name !== undefined ? name : state.vendors[index].name,
-      pin: pin !== undefined ? pin : state.vendors[index].pin,
-      commission: commission !== undefined ? Number(commission) : state.vendors[index].commission,
-    };
-    saveState();
-    res.json({ success: true, vendor: state.vendors[index] });
-  } else {
-    // Create new vendor
-    const newVendor: Vendor = {
-      id: id || "v" + (state.vendors.length + 1),
-      name,
-      pin,
-      commission: Number(commission) || 0.10,
-      tradeCredit: 0.0
-    };
-    state.vendors.push(newVendor);
-    saveState();
-    res.json({ success: true, vendor: newVendor });
-  }
+  // Create new vendor
+  const newVendorId = targetId || "v_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+  const newVendor: Vendor = {
+    id: newVendorId,
+    name,
+    pin,
+    commission: Number(commission) || 0.10,
+    tradeCredit: 0.0,
+    color: color || "#64748B" // default slate
+  };
+  state.vendors.push(newVendor);
+  saveState();
+  res.json({ success: true, vendor: newVendor });
 });
 
 // Log a sale (from Joint Staff page or vendor themselves)
 app.post("/api/sales", (req, res) => {
-  const { vendorId, itemName, stockItemId, price, date } = req.body;
+  const { vendorId, itemName, stockItemId, price, date, items, tradeIn } = req.body;
 
-  if (!vendorId || !itemName || !price) {
-    res.status(400).json({ error: "vendorId, itemName, and price are required" });
+  if (!vendorId) {
+    res.status(400).json({ error: "vendorId is required" });
     return;
   }
 
@@ -148,41 +152,93 @@ app.post("/api/sales", (req, res) => {
     return;
   }
 
-  const salePrice = Number(price);
-  const commRate = vendor.commission;
-  const commAmount = Number((salePrice * commRate).toFixed(2));
-  const earnings = Number((salePrice - commAmount).toFixed(2));
+  // Handle multiple items or single item
+  let itemsToProcess = [];
+  if (items && Array.isArray(items)) {
+    itemsToProcess = items;
+  } else if (itemName || price !== undefined) {
+    itemsToProcess = [{ itemName, stockItemId, price }];
+  }
 
-  // If connected to a stock item, decrement quantity
-  if (stockItemId) {
-    const item = state.stock.find((s) => s.id === stockItemId);
-    if (item) {
-      if (item.quantity > 1) {
-        item.quantity -= 1;
-      } else {
-        // Remove item from stock or set qty to 0
-        item.quantity = 0;
-      }
+  // Validate items if any are present
+  for (const item of itemsToProcess) {
+    if (!item.itemName || item.price === undefined || item.price === null || isNaN(Number(item.price))) {
+      res.status(400).json({ error: "Each item must have a valid itemName and price" });
+      return;
     }
   }
 
-  const newSale: Sale = {
-    id: "sale_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
-    vendorId,
-    vendorName: vendor.name,
-    itemName,
-    stockItemId: stockItemId || null,
-    price: salePrice,
-    commissionAmount: commAmount,
-    vendorEarnings: earnings,
-    date: date || new Date().toISOString(),
-    cashedOut: false,
-    cashoutRequestId: null,
-  };
+  // Ensure either sale items or tradeIn is provided
+  if (itemsToProcess.length === 0 && !tradeIn) {
+    res.status(400).json({ error: "Please provide either sale items or a trade-in transaction" });
+    return;
+  }
 
-  state.sales.push(newSale);
+  const loggedSales: Sale[] = [];
+
+  // 1. Process Sale Items
+  for (let i = 0; i < itemsToProcess.length; i++) {
+    const item = itemsToProcess[i];
+    const salePrice = Number(item.price);
+    const commRate = vendor.commission;
+    const commAmount = Number((salePrice * commRate).toFixed(2));
+    const earnings = Number((salePrice - commAmount).toFixed(2));
+
+    // If connected to a stock item, decrement quantity
+    if (item.stockItemId) {
+      const stockItem = state.stock.find((s) => s.id === item.stockItemId);
+      if (stockItem) {
+        if (stockItem.quantity > 1) {
+          stockItem.quantity -= 1;
+        } else {
+          stockItem.quantity = 0;
+        }
+      }
+    }
+
+    const newSale: Sale = {
+      id: "sale_" + Date.now() + "_" + Math.floor(Math.random() * 100000) + "_" + i,
+      vendorId,
+      vendorName: vendor.name,
+      itemName: item.itemName,
+      stockItemId: item.stockItemId || null,
+      price: salePrice,
+      commissionAmount: commAmount,
+      vendorEarnings: earnings,
+      date: date || new Date().toISOString(),
+      cashedOut: false,
+      cashoutRequestId: null,
+    };
+
+    loggedSales.push(newSale);
+    state.sales.push(newSale);
+  }
+
+  // 2. Process Trade-In if provided
+  if (tradeIn && tradeIn.details && tradeIn.amount !== undefined && tradeIn.amount !== null) {
+    const tradeInAmount = Number(tradeIn.amount);
+    if (!isNaN(tradeInAmount) && tradeInAmount > 0) {
+      // Deduct from vendor's trade credit balance (their account)
+      vendor.tradeCredit = Number((vendor.tradeCredit - tradeInAmount).toFixed(2));
+
+      // Log a TradeIn record
+      const newTradeIn: TradeIn = {
+        id: "tradein_" + Date.now() + "_" + Math.floor(Math.random() * 10000),
+        vendorId,
+        vendorName: vendor.name,
+        details: "[Register Trade-In] " + tradeIn.details,
+        estimatedValue: tradeInAmount,
+        creditApplied: -tradeInAmount, // negative means deduction/applied-away
+        status: "approved", // Directly approved because it was registered at the till by staff
+        date: date || new Date().toISOString()
+      };
+
+      state.tradeIns.push(newTradeIn);
+    }
+  }
+
   saveState();
-  res.json({ success: true, sale: newSale, stock: state.stock });
+  res.json({ success: true, sales: loggedSales, stock: state.stock, tradeIns: state.tradeIns, vendors: state.vendors });
 });
 
 // Add or Edit Stock
@@ -365,17 +421,14 @@ app.post("/api/cashouts", (req, res) => {
     status: "pending"
   };
 
-  // Find all un-cashedout, eligible (older than 2 weeks) sales for this vendor
-  const twoWeeksAgo = new Date();
-  twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
-
+  // Find all un-cashedout, eligible sales for this vendor using the new dynamic Friday payout rule
   let taggedSalesCount = 0;
   state.sales.forEach((sale) => {
     if (
       sale.vendorId === vendorId &&
       !sale.cashedOut &&
       !sale.cashoutRequestId &&
-      new Date(sale.date) <= twoWeeksAgo
+      isSaleMature(sale.date, new Date())
     ) {
       sale.cashoutRequestId = reqId;
       taggedSalesCount++;
@@ -491,6 +544,73 @@ app.post("/api/admin/trade-ins/:id/respond", (req, res) => {
 
   saveState();
   res.json({ success: true, tradeIns: state.tradeIns, vendors: state.vendors });
+});
+
+// Admin Update Sale
+app.post("/api/admin/sales/:id/update", (req, res) => {
+  const { id } = req.params;
+  const { vendorId, itemName, price, date } = req.body;
+
+  if (!vendorId || !itemName || price === undefined) {
+    res.status(400).json({ error: "vendorId, itemName, and price are required" });
+    return;
+  }
+
+  const saleIndex = state.sales.findIndex((s) => s.id === id);
+  if (saleIndex === -1) {
+    res.status(404).json({ error: "Sale not found" });
+    return;
+  }
+
+  const vendor = state.vendors.find((v) => v.id === vendorId);
+  if (!vendor) {
+    res.status(404).json({ error: "Vendor not found" });
+    return;
+  }
+
+  const salePrice = Number(price);
+  const commRate = vendor.commission;
+  const commAmount = Number((salePrice * commRate).toFixed(2));
+  const earnings = Number((salePrice - commAmount).toFixed(2));
+
+  state.sales[saleIndex] = {
+    ...state.sales[saleIndex],
+    vendorId,
+    vendorName: vendor.name,
+    itemName,
+    price: salePrice,
+    commissionAmount: commAmount,
+    vendorEarnings: earnings,
+    date: date || state.sales[saleIndex].date,
+  };
+
+  saveState();
+  res.json({ success: true, sale: state.sales[saleIndex], sales: state.sales });
+});
+
+// Admin Delete Sale
+app.post("/api/admin/sales/:id/delete", (req, res) => {
+  const { id } = req.params;
+
+  const saleIndex = state.sales.findIndex((s) => s.id === id);
+  if (saleIndex === -1) {
+    res.status(404).json({ error: "Sale not found" });
+    return;
+  }
+
+  const sale = state.sales[saleIndex];
+
+  // If connected to a stock item, restore the stock quantity by 1
+  if (sale.stockItemId) {
+    const item = state.stock.find((s) => s.id === sale.stockItemId);
+    if (item) {
+      item.quantity += 1;
+    }
+  }
+
+  state.sales.splice(saleIndex, 1);
+  saveState();
+  res.json({ success: true, sales: state.sales, stock: state.stock });
 });
 
 

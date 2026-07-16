@@ -19,7 +19,6 @@ import PINLogin from './components/PINLogin';
 import DashboardHome from './components/DashboardHome';
 import JointStaffPage from './components/JointStaffPage';
 import StockManager from './components/StockManager';
-import TradeProposalManager from './components/TradeProposalManager';
 import CashoutAndTradeIn from './components/CashoutAndTradeIn';
 import MasterControl from './components/MasterControl';
 
@@ -35,7 +34,8 @@ export default function App() {
   // Session States
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userRole, setUserRole] = useState<'vendor' | 'admin' | null>(null);
-  const [activeTab, setActiveTab] = useState<string>('home');
+  const [activeTab, setActiveTab] = useState<string>('staff');
+  const [adminViewingVendorId, setAdminViewingVendorId] = useState<string | null>(null);
 
   // UI Statuses
   const [isLoadingState, setIsLoadingState] = useState(true);
@@ -88,9 +88,10 @@ export default function App() {
   const handleLogout = () => {
     setCurrentUser(null);
     setUserRole(null);
+    setAdminViewingVendorId(null);
     localStorage.removeItem('newtons_session_user');
     localStorage.removeItem('newtons_session_role');
-    setActiveTab('home');
+    setActiveTab('staff');
     setPinError(null);
     setMobileMenuOpen(false);
   };
@@ -129,10 +130,19 @@ export default function App() {
   // Log a sale from Joint Register
   const handleLogSale = async (saleData: {
     vendorId: string;
-    itemName: string;
-    stockItemId: string | null;
-    price: number;
+    itemName?: string;
+    stockItemId?: string | null;
+    price?: number;
     date: string;
+    items?: Array<{
+      itemName: string;
+      stockItemId: string | null;
+      price: number;
+    }>;
+    tradeIn?: {
+      details: string;
+      amount: number;
+    };
   }) => {
     const res = await fetch('/api/sales', {
       method: 'POST',
@@ -278,6 +288,7 @@ export default function App() {
     name: string;
     pin: string;
     commission: number;
+    color?: string;
   }) => {
     const res = await fetch('/api/admin/vendors', {
       method: 'POST',
@@ -288,6 +299,41 @@ export default function App() {
     if (!res.ok) {
       const data = await res.json();
       throw new Error(data.error || "Failed to update vendor structures.");
+    }
+
+    await refreshAppState();
+  };
+
+  // Admin: Update sale
+  const handleUpdateSale = async (saleId: string, saleData: {
+    vendorId: string;
+    itemName: string;
+    price: number;
+    date: string;
+  }) => {
+    const res = await fetch(`/api/admin/sales/${saleId}/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(saleData)
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Failed to update sale.");
+    }
+
+    await refreshAppState();
+  };
+
+  // Admin: Delete sale
+  const handleDeleteSale = async (saleId: string) => {
+    const res = await fetch(`/api/admin/sales/${saleId}/delete`, {
+      method: 'POST'
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || "Failed to delete sale.");
     }
 
     await refreshAppState();
@@ -337,24 +383,10 @@ export default function App() {
     );
   }
 
-  // If not authorized, show PIN Pad login screen
-  if (!currentUser || !userRole) {
-    return (
-      <div className="min-h-screen bg-zinc-50 flex flex-col justify-between py-8">
-        <PINLogin
-          onLogin={handleLoginSubmit}
-          error={pinError}
-          loading={authLoading}
-        />
-        <footer className="text-center text-[10px] text-zinc-400 font-bold uppercase tracking-widest">
-          © 2026 Newton's Collectables • Bury St Edmunds Stall Management
-        </footer>
-      </div>
-    );
-  }
-
   // Active user details
-  const activeVendorObject = vendors.find((v) => v.id === currentUser.id);
+  const activeVendorObject = adminViewingVendorId 
+    ? vendors.find((v) => v.id === adminViewingVendorId)
+    : (currentUser ? vendors.find((v) => v.id === currentUser.id) : null);
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col font-sans">
@@ -379,7 +411,7 @@ export default function App() {
 
             {/* Desktop Navigation Links */}
             <nav className="hidden md:flex items-center gap-1.5 text-xs font-semibold">
-              {userRole === 'vendor' && (
+              {(userRole === 'vendor' || (userRole === 'admin' && adminViewingVendorId)) && (
                 <>
                   <button
                     id="nav-tab-home"
@@ -402,17 +434,6 @@ export default function App() {
                     }`}
                   >
                     Stock Catalog
-                  </button>
-                  <button
-                    id="nav-tab-trades"
-                    onClick={() => setActiveTab('trades')}
-                    className={`px-3 py-2 rounded-md transition-all ${
-                      activeTab === 'trades' 
-                        ? 'bg-zinc-100 text-blue-600 font-bold' 
-                        : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
-                    }`}
-                  >
-                    P2P Trades
                   </button>
                   <button
                     id="nav-tab-payouts"
@@ -455,27 +476,58 @@ export default function App() {
                   <ShieldCheck className="w-3.5 h-3.5 text-blue-500" /> Stall Control
                 </button>
               )}
+
+              {/* Guest Login Tab */}
+              {!currentUser && (
+                <button
+                  id="nav-tab-login"
+                  onClick={() => setActiveTab('login')}
+                  className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
+                    activeTab === 'login' 
+                      ? 'bg-blue-50 text-blue-600 font-bold border border-blue-100/60' 
+                      : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" /> Vendor Login
+                </button>
+              )}
             </nav>
 
-            {/* Logout and session details */}
-            <div className="hidden md:flex items-center gap-3">
-              <div className="text-right">
-                <span className="text-xs font-bold text-zinc-900 block leading-tight">
-                  {currentUser.name.split(' ')[0]}
-                </span>
-                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mt-0.5">
-                  {userRole === 'admin' ? 'Stall Master' : 'Vendor'}
-                </span>
+            {/* Logout and session details / Login Button */}
+            {currentUser ? (
+              <div className="hidden md:flex items-center gap-3">
+                <div className="text-right">
+                  <span className="text-xs font-bold text-zinc-900 block leading-tight">
+                    {currentUser.name.split(' ')[0]}
+                  </span>
+                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mt-0.5">
+                    {userRole === 'admin' ? 'Stall Master' : 'Vendor'}
+                  </span>
+                </div>
+                <button
+                  id="btn-logout-desktop"
+                  onClick={handleLogout}
+                  className="p-2 bg-zinc-50 hover:bg-red-50 hover:text-red-600 text-zinc-400 rounded-lg transition-colors focus:outline-none border border-zinc-200/40"
+                  title="Log Out Securely"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
               </div>
-              <button
-                id="btn-logout-desktop"
-                onClick={handleLogout}
-                className="p-2 bg-zinc-50 hover:bg-red-50 hover:text-red-600 text-zinc-400 rounded-lg transition-colors focus:outline-none border border-zinc-200/40"
-                title="Log Out Securely"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
+            ) : (
+              <div className="hidden md:flex items-center">
+                <button
+                  id="btn-login-desktop"
+                  onClick={() => setActiveTab('login')}
+                  className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all flex items-center gap-2 cursor-pointer ${
+                    activeTab === 'login'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                      : 'bg-white text-zinc-700 border-zinc-200 hover:border-zinc-300'
+                  }`}
+                >
+                  <ShieldCheck className="w-4 h-4" /> Log In
+                </button>
+              </div>
+            )}
 
             {/* Mobile Menu Hamburger button */}
             <button
@@ -491,20 +543,35 @@ export default function App() {
         {/* Mobile menu collapsible */}
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-zinc-200 bg-white px-4 py-3 space-y-2 shadow-inner">
-            <div className="pb-2 mb-2 border-b border-zinc-100 flex justify-between items-center text-xs">
-              <div>
-                <p className="font-bold text-zinc-900">{currentUser.name}</p>
-                <p className="text-[10px] text-zinc-400 font-semibold uppercase tracking-wider">{userRole === 'admin' ? 'Newton Control' : 'Pokemon Vendor'}</p>
+            {currentUser ? (
+              <div className="pb-2 mb-2 border-b border-zinc-100 flex justify-between items-center text-xs">
+                <div>
+                  <p className="font-bold text-zinc-900">{currentUser.name}</p>
+                  <p className="text-[10px] text-zinc-400 font-semibold uppercase tracking-wider">{userRole === 'admin' ? 'Newton Control' : 'Pokemon Vendor'}</p>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="text-[10px] text-red-600 font-bold flex items-center gap-1 bg-red-50 py-1.5 px-3 rounded-lg border border-red-100/50"
+                >
+                  <LogOut className="w-3 h-3" /> Log Out
+                </button>
               </div>
-              <button
-                onClick={handleLogout}
-                className="text-[10px] text-red-600 font-bold flex items-center gap-1 bg-red-50 py-1.5 px-3 rounded-lg border border-red-100/50"
-              >
-                <LogOut className="w-3 h-3" /> Log Out
-              </button>
-            </div>
+            ) : (
+              <div className="pb-2 mb-2 border-b border-zinc-100 flex justify-between items-center text-xs">
+                <div>
+                  <p className="font-bold text-zinc-900">Guest User</p>
+                  <p className="text-[10px] text-zinc-400 font-semibold uppercase tracking-wider">Joint Register Mode</p>
+                </div>
+                <button
+                  onClick={() => { setActiveTab('login'); setMobileMenuOpen(false); }}
+                  className="text-[10px] text-blue-600 font-bold flex items-center gap-1.5 bg-blue-50 py-1.5 px-3 rounded-lg border border-blue-100/50"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" /> Log In
+                </button>
+              </div>
+            )}
 
-            {userRole === 'vendor' && (
+            {(userRole === 'vendor' || (userRole === 'admin' && adminViewingVendorId)) && (
               <>
                 <button
                   id="mob-tab-home"
@@ -523,15 +590,6 @@ export default function App() {
                   }`}
                 >
                   Stock Catalog
-                </button>
-                <button
-                  id="mob-tab-trades"
-                  onClick={() => { setActiveTab('trades'); setMobileMenuOpen(false); }}
-                  className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
-                    activeTab === 'trades' ? 'bg-zinc-100 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
-                  }`}
-                >
-                  P2P Trades
                 </button>
                 <button
                   id="mob-tab-payouts"
@@ -563,7 +621,19 @@ export default function App() {
                   activeTab === 'admin' ? 'bg-zinc-900 text-white' : 'text-zinc-500'
                 }`}
               >
-                Newton Master Control
+                Stall Control
+              </button>
+            )}
+
+            {!currentUser && (
+              <button
+                id="mob-tab-login"
+                onClick={() => { setActiveTab('login'); setMobileMenuOpen(false); }}
+                className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
+                  activeTab === 'login' ? 'bg-zinc-100 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+                }`}
+              >
+                Log In (Vendor / Stall Control)
               </button>
             )}
           </div>
@@ -587,8 +657,44 @@ export default function App() {
           </button>
         </div>
 
+        {/* Stall Control Active Preview Banner */}
+        {userRole === 'admin' && adminViewingVendorId && activeVendorObject && (
+          <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xs animate-in slide-in-from-top-1 duration-200">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-blue-100 text-blue-700 rounded-lg flex items-center justify-center font-extrabold shrink-0 text-lg">
+                👁️
+              </div>
+              <div>
+                <h4 className="text-xs font-black text-blue-900 uppercase tracking-wide">Stall Control Active Preview</h4>
+                <p className="text-[11px] text-blue-700 font-semibold mt-0.5">
+                  Currently viewing profile/dashboard of <strong className="font-extrabold text-blue-900">{activeVendorObject.name}</strong> without PIN authorization.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                id="btn-switch-to-register"
+                onClick={() => setActiveTab('staff')}
+                className="px-3 py-2 bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+              >
+                Joint Register
+              </button>
+              <button
+                id="btn-exit-vendor-preview"
+                onClick={() => {
+                  setAdminViewingVendorId(null);
+                  setActiveTab('admin');
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs font-extrabold rounded-lg shadow-sm transition-colors cursor-pointer whitespace-nowrap"
+              >
+                ← Back to Stall Control
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Tab Router Switch */}
-        {userRole === 'vendor' && activeTab === 'home' && activeVendorObject && (
+        {(userRole === 'vendor' || (userRole === 'admin' && adminViewingVendorId)) && activeTab === 'home' && activeVendorObject && (
           <DashboardHome
             vendor={activeVendorObject}
             sales={sales}
@@ -602,28 +708,27 @@ export default function App() {
             stock={stock}
             sales={sales}
             onLogSale={handleLogSale}
+            userRole={userRole}
+            adminViewingVendorId={adminViewingVendorId}
+            onViewVendorProfile={(vendorId) => {
+              setAdminViewingVendorId(vendorId);
+              setActiveTab('home');
+            }}
+            onUpdateSale={handleUpdateSale}
+            onDeleteSale={handleDeleteSale}
           />
         )}
 
-        {userRole === 'vendor' && activeTab === 'stock' && activeVendorObject && (
+        {(userRole === 'vendor' || (userRole === 'admin' && adminViewingVendorId)) && activeTab === 'stock' && activeVendorObject && (
           <StockManager
             vendor={activeVendorObject}
             stock={stock}
             onAddStock={handleAddStock}
-          />
-        )}
-
-        {userRole === 'vendor' && activeTab === 'trades' && activeVendorObject && (
-          <TradeProposalManager
-            vendor={activeVendorObject}
             vendors={vendors}
-            trades={trades}
-            onProposeTrade={handleProposeTrade}
-            onRespondTrade={handleRespondTrade}
           />
         )}
 
-        {userRole === 'vendor' && activeTab === 'payouts' && activeVendorObject && (
+        {(userRole === 'vendor' || (userRole === 'admin' && adminViewingVendorId)) && activeTab === 'payouts' && activeVendorObject && (
           <CashoutAndTradeIn
             vendor={activeVendorObject}
             sales={sales}
@@ -643,7 +748,23 @@ export default function App() {
             onUpdateVendor={handleUpdateVendor}
             onRespondCashout={handleRespondCashout}
             onRespondTradeIn={handleRespondTradeIn}
+            onUpdateSale={handleUpdateSale}
+            onDeleteSale={handleDeleteSale}
+            onViewVendorProfile={(vendorId) => {
+              setAdminViewingVendorId(vendorId);
+              setActiveTab('home');
+            }}
           />
+        )}
+
+        {activeTab === 'login' && !currentUser && (
+          <div className="bg-white py-8 px-4 rounded-xl shadow-xs border border-zinc-200/60 max-w-md mx-auto my-8">
+            <PINLogin
+              onLogin={handleLoginSubmit}
+              error={pinError}
+              loading={authLoading}
+            />
+          </div>
         )}
 
       </main>

@@ -4,6 +4,7 @@ export interface Vendor {
   pin: string;
   commission: number; // e.g. 0.10 for 10%
   tradeCredit: number; // accumulated credit stored in the site
+  color?: string; // Hex color code
 }
 
 export interface StockItem {

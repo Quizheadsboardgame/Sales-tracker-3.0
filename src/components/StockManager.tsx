@@ -15,9 +15,10 @@ interface StockManagerProps {
     setName: string;
     imageUrl?: string;
   }) => Promise<void>;
+  vendors?: Vendor[];
 }
 
-export default function StockManager({ vendor, stock, onAddStock }: StockManagerProps) {
+export default function StockManager({ vendor, stock, onAddStock, vendors }: StockManagerProps) {
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
   const [showOnlyOwn, setShowOnlyOwn] = useState(false);
@@ -379,12 +380,15 @@ export default function StockManager({ vendor, stock, onAddStock }: StockManager
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredStock.map((item) => {
             const isOwn = item.vendorId === vendor.id;
+            const itemVendorObj = vendors?.find(v => v.id === item.vendorId);
+            const itemVendorColor = itemVendorObj?.color || (isOwn ? (vendor.color || '#2563EB') : '#64748B');
             return (
               <div
                 key={item.id}
                 className={`bg-white rounded-xl border transition-all hover:shadow-xs flex flex-col justify-between overflow-hidden ${
-                  isOwn ? 'border-blue-200 ring-1 ring-blue-500/20 bg-blue-50/5' : 'border-zinc-200'
+                  isOwn ? 'ring-1 bg-blue-50/5' : 'border-zinc-200'
                 }`}
+                style={isOwn ? { borderColor: `${itemVendorColor}50`, boxShadow: `0 0 10px ${itemVendorColor}08` } : undefined}
               >
                 {/* Photo Header */}
                 <div className="h-44 bg-zinc-50 relative flex items-center justify-center border-b border-zinc-200">
@@ -407,11 +411,11 @@ export default function StockManager({ vendor, stock, onAddStock }: StockManager
                   {/* Badges Overlay */}
                   <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
                     {isOwn ? (
-                      <span className="bg-blue-600 text-white font-extrabold text-[9px] px-2 py-0.5 rounded shadow-xs">
+                      <span className="text-white font-extrabold text-[9px] px-2 py-0.5 rounded shadow-xs" style={{ backgroundColor: itemVendorColor }}>
                         My Card
                       </span>
                     ) : (
-                      <span className="bg-zinc-800 text-white font-extrabold text-[9px] px-2 py-0.5 rounded shadow-xs truncate max-w-[100px]">
+                      <span className="text-white font-extrabold text-[9px] px-2 py-0.5 rounded shadow-xs truncate max-w-[100px]" style={{ backgroundColor: itemVendorColor }}>
                         {item.vendorName.split(' ')[0]}'s Stall
                       </span>
                     )}
