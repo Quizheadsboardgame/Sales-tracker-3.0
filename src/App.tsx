@@ -64,6 +64,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    // 1. Initial State Fetch
     refreshAppState();
     
     // Restore login session from localStorage if available
@@ -75,27 +76,64 @@ export default function App() {
       setActiveTab(savedRole === 'admin' ? 'admin' : 'home');
     }
 
-    // Connect to real-time updates via Server-Sent Events (SSE)
-    const eventSource = new EventSource('/api/updates');
+    let eventSource: EventSource | null = null;
 
-    eventSource.onmessage = (event) => {
-      if (event.data === 'connected') return;
+    // Helper to connect to real-time updates via Server-Sent Events (SSE)
+    const connectSSE = () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+
       try {
-        const payload = JSON.parse(event.data);
-        if (payload.type === 'update') {
-          refreshAppState();
-        }
+        eventSource = new EventSource('/api/updates');
+
+        eventSource.onmessage = (event) => {
+          if (event.data === 'connected') return;
+          try {
+            const payload = JSON.parse(event.data);
+            if (payload.type === 'update') {
+              refreshAppState();
+            }
+          } catch (err) {
+            console.error("Error parsing SSE real-time payload:", err);
+          }
+        };
+
+        eventSource.onerror = (err) => {
+          console.warn("Real-time SSE connection disconnected, auto-retrying...", err);
+        };
       } catch (err) {
-        console.error("Error parsing SSE real-time payload:", err);
+        console.error("Failed to establish real-time SSE connection:", err);
       }
     };
 
-    eventSource.onerror = (err) => {
-      console.warn("Real-time SSE connection disconnected, auto-retrying...", err);
+    // Only start the SSE connection once the document is visible
+    if (document.visibilityState === 'visible') {
+      connectSSE();
+    }
+
+    // Connect/disconnect based on tab visibility
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Re-sync immediately on return to app
+        refreshAppState();
+        connectSSE();
+      } else {
+        // Disconnect immediately when backgrounded to free up HTTP/1.1 ports (crucial for mobile Safari/Chrome concurrency)
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+      }
     };
 
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
-      eventSource.close();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (eventSource) {
+        eventSource.close();
+      }
     };
   }, []);
 
