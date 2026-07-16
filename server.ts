@@ -75,14 +75,52 @@ const loadState = () => {
 // Store active SSE clients
 let sseClients: { id: number; res: any }[] = [];
 
+// Helper to race a promise against a timeout
+const withTimeout = <T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
+  let timeoutId: NodeJS.Timeout;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Operation timeout for: ${label} (limit ${timeoutMs}ms)`));
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId!);
+  });
+};
+
+// Heartbeat interval to prevent proxies (e.g., Cloud Run load balancer) from closing idle connections
+setInterval(() => {
+  if (sseClients.length === 0) return;
+  
+  sseClients = sseClients.filter((client) => {
+    if (client.res.writableEnded || !client.res.writable) {
+      return false;
+    }
+    try {
+      // Send SSE comment as keep-alive heartbeat
+      client.res.write(":\n\n");
+      return true;
+    } catch (err) {
+      console.error("Error writing keep-alive to SSE client, removing:", err);
+      return false;
+    }
+  });
+}, 15000);
+
 // Broadcast helper
 const broadcastUpdate = () => {
   const data = JSON.stringify({ type: "update" });
-  sseClients.forEach((client) => {
+  // Filter clients to keep only active/writable ones
+  sseClients = sseClients.filter((client) => {
+    if (client.res.writableEnded || !client.res.writable) {
+      return false;
+    }
     try {
       client.res.write(`data: ${data}\n\n`);
+      return true;
     } catch (err) {
-      console.error("Error writing to SSE client", err);
+      console.error("Error writing to SSE client, removing:", err);
+      return false;
     }
   });
 };
@@ -125,15 +163,20 @@ const saveState = async () => {
 
     // 4. Save to Firestore in real-time
     if (db) {
-      const batch = writeBatch(db);
-      const keys: (keyof AppState)[] = ["vendors", "stock", "sales", "trades", "cashouts", "tradeIns"];
-      const collectionRef = collection(db, "marketState");
-      keys.forEach((key) => {
-        const docRef = doc(collectionRef, key);
-        batch.set(docRef, { data: state[key] || [] });
-      });
-      await batch.commit();
-      console.log("State written to Firestore successfully!");
+      try {
+        const batch = writeBatch(db);
+        const keys: (keyof AppState)[] = ["vendors", "stock", "sales", "trades", "cashouts", "tradeIns"];
+        const collectionRef = collection(db, "marketState");
+        keys.forEach((key) => {
+          const docRef = doc(collectionRef, key);
+          batch.set(docRef, { data: state[key] || [] });
+        });
+        // Limit save operation to 4 seconds to prevent background thread hangs
+        await withTimeout(batch.commit(), 4000, "Firestore batch.commit");
+        console.log("State written to Firestore successfully!");
+      } catch (fErr: any) {
+        console.error("Firestore real-time sync failed (falling back to local files):", fErr.message || fErr);
+      }
     }
 
     // Always broadcast update to all connected SSE clients
@@ -159,7 +202,8 @@ const initializeDatabase = async () => {
 
   try {
     const collectionRef = collection(db, "marketState");
-    const snapshot = await getDocs(collectionRef);
+    console.log("Fetching initial state from Firestore (4s timeout)...");
+    const snapshot = await withTimeout(getDocs(collectionRef), 4000, "Firestore initial read");
 
     if (snapshot.empty) {
       console.log("Firestore is empty. Seeding Firestore with local data.json contents...");
@@ -172,7 +216,7 @@ const initializeDatabase = async () => {
         const docRef = doc(collectionRef, key);
         batch.set(docRef, { data: state[key] || [] });
       });
-      await batch.commit();
+      await withTimeout(batch.commit(), 4000, "Firestore seeding batch.commit");
       console.log("Firestore seeding completed successfully!");
     } else {
       console.log("Loading state from Firestore...");
@@ -272,17 +316,32 @@ app.get("/api/updates", (req, res) => {
     "Content-Encoding": "none"
   });
 
-  // Send initial handshake
-  res.write("data: connected\n\n");
-
   const clientId = Date.now() + Math.random();
+
+  // Attach error listener to prevent uncaught exceptions on stream breaks
+  res.on("error", (err) => {
+    console.error("SSE connection stream error for client", clientId, err);
+    sseClients = sseClients.filter((c) => c.id !== clientId);
+  });
+
+  // Send initial handshake
+  try {
+    res.write("data: connected\n\n");
+  } catch (err) {
+    console.error("Failed to write initial SSE handshake:", err);
+    res.end();
+    return;
+  }
+
   const newClient = { id: clientId, res };
   sseClients.push(newClient);
 
   // Client connection teardown
   req.on("close", () => {
     sseClients = sseClients.filter((c) => c.id !== clientId);
-    res.end();
+    try {
+      res.end();
+    } catch (err) {}
   });
 });
 

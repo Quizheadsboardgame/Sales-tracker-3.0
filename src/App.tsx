@@ -49,9 +49,10 @@ export default function App() {
   const [syncError, setSyncError] = useState<string | null>(null);
 
   // Load Entire State from backend
-  const refreshAppState = async () => {
-    setIsSyncing(true);
-    setSyncError(null);
+  const refreshAppState = async (silent = false) => {
+    if (!silent) {
+      setIsSyncing(true);
+    }
     try {
       const res = await fetch('/api/state');
       if (res.ok) {
@@ -63,6 +64,7 @@ export default function App() {
         setCashouts(data.cashouts || []);
         setTradeIns(data.tradeIns || []);
         setLastSynced(new Date());
+        setSyncError(null); // Clear errors on successful connection
       } else {
         setSyncError("Failed to fetch state from network");
       }
@@ -70,7 +72,9 @@ export default function App() {
       console.error("Error synchronizing with state database", err);
       setSyncError(err.message || "Network Sync failed");
     } finally {
-      setIsSyncing(false);
+      if (!silent) {
+        setIsSyncing(false);
+      }
       setIsLoadingState(false);
     }
   };
@@ -104,7 +108,8 @@ export default function App() {
           try {
             const payload = JSON.parse(event.data);
             if (payload.type === 'update') {
-              refreshAppState();
+              // Trigger silent refresh on real-time SSE broadcasts
+              refreshAppState(true);
             }
           } catch (err) {
             console.error("Error parsing SSE real-time payload:", err);
@@ -127,8 +132,8 @@ export default function App() {
     // Connect/disconnect based on tab visibility
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        // Re-sync immediately on return to app
-        refreshAppState();
+        // Re-sync immediately (silently) on return to app
+        refreshAppState(true);
         connectSSE();
       } else {
         // Disconnect immediately when backgrounded to free up HTTP/1.1 ports (crucial for mobile Safari/Chrome concurrency)
@@ -141,8 +146,14 @@ export default function App() {
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
+    // Dynamic dual-sync: periodic fallback polling every 12 seconds to ensure 100% data reliability
+    const pollingInterval = setInterval(() => {
+      refreshAppState(true);
+    }, 12000);
+
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(pollingInterval);
       if (eventSource) {
         eventSource.close();
       }
