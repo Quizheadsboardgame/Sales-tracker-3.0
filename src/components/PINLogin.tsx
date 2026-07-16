@@ -76,14 +76,14 @@ export default function PINLogin({ onLogin, error, loading }: PINLoginProps) {
         )}
 
         {/* Numeric Keypad */}
-        <div className="grid grid-cols-3 gap-3 w-full max-w-[260px] mt-2">
+        <div className="grid grid-cols-3 gap-3 w-full max-w-[260px] mt-2 select-none">
           {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((num) => (
             <button
               id={`pin-btn-${num}`}
               key={num}
               onClick={() => handleKeyPress(num)}
               disabled={loading}
-              className="h-14 w-full text-lg font-bold text-zinc-800 bg-zinc-100 hover:bg-zinc-200/80 active:bg-zinc-300 rounded-xl flex items-center justify-center transition-all focus:outline-none"
+              className="h-14 w-full text-lg font-bold text-zinc-800 bg-zinc-100 hover:bg-zinc-200/80 active:bg-zinc-300 rounded-xl flex items-center justify-center transition-all focus:outline-none touch-manipulation select-none"
             >
               {num}
             </button>
@@ -92,7 +92,7 @@ export default function PINLogin({ onLogin, error, loading }: PINLoginProps) {
             id="pin-btn-clear"
             onClick={handleClear}
             disabled={loading}
-            className="h-14 w-full text-xs font-bold text-zinc-400 hover:text-zinc-600 active:bg-zinc-100 rounded-xl flex items-center justify-center transition-colors focus:outline-none"
+            className="h-14 w-full text-xs font-bold text-zinc-400 hover:text-zinc-600 active:bg-zinc-100 rounded-xl flex items-center justify-center transition-colors focus:outline-none touch-manipulation select-none"
           >
             CLEAR
           </button>
@@ -100,7 +100,7 @@ export default function PINLogin({ onLogin, error, loading }: PINLoginProps) {
             id="pin-btn-0"
             onClick={() => handleKeyPress('0')}
             disabled={loading}
-            className="h-14 w-full text-lg font-bold text-zinc-800 bg-zinc-100 hover:bg-zinc-200/80 active:bg-zinc-300 rounded-xl flex items-center justify-center transition-all focus:outline-none"
+            className="h-14 w-full text-lg font-bold text-zinc-800 bg-zinc-100 hover:bg-zinc-200/80 active:bg-zinc-300 rounded-xl flex items-center justify-center transition-all focus:outline-none touch-manipulation select-none"
           >
             0
           </button>
@@ -108,7 +108,7 @@ export default function PINLogin({ onLogin, error, loading }: PINLoginProps) {
             id="pin-btn-del"
             onClick={handleDelete}
             disabled={loading}
-            className="h-14 w-full text-xs font-bold text-zinc-400 hover:text-zinc-600 active:bg-zinc-100 rounded-xl flex items-center justify-center transition-colors focus:outline-none"
+            className="h-14 w-full text-xs font-bold text-zinc-400 hover:text-zinc-600 active:bg-zinc-100 rounded-xl flex items-center justify-center transition-colors focus:outline-none touch-manipulation select-none"
           >
             DELETE
           </button>

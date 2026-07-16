@@ -145,9 +145,11 @@ const saveState = async () => {
 
 // Initialize Database connection and synchronize state
 const initializeDatabase = async () => {
+  // Load local state baseline immediately so `/api/state` is populated with vendors/stock/sales right away
+  loadState();
+
   if (!db) {
     console.log("Firebase config not found, running with local file persistence only.");
-    loadState();
     // Save once if data.json doesn't exist
     if (!fs.existsSync(DB_FILE)) {
       saveState();
