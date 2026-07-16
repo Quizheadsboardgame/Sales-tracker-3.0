@@ -2,8 +2,8 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import dotenv from "dotenv";
-import { initializeApp, getApps } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getFirestore, collection, doc, getDocs, writeBatch, onSnapshot } from "firebase/firestore";
 import { createServer as createViteServer } from "vite";
 import { AppState, Vendor, StockItem, Sale, TradeProposal, CashoutRequest, TradeIn } from "./src/types";
 import { isSaleMature } from "./src/payoutUtils";
@@ -48,16 +48,17 @@ try {
   console.error("Error reading firebase-applet-config.json:", e);
 }
 
-// Initialize firebase-admin if config is available
-if (firebaseConfig && getApps().length === 0) {
-  initializeApp({
-    projectId: firebaseConfig.projectId,
-  });
+// Initialize firebase client SDK if config is available
+let db: any = null;
+if (firebaseConfig) {
+  try {
+    const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+    db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+    console.log("Firebase Client SDK initialized with database:", firebaseConfig.firestoreDatabaseId);
+  } catch (err) {
+    console.error("Error initializing Firebase Client SDK:", err);
+  }
 }
-
-const db = firebaseConfig && firebaseConfig.firestoreDatabaseId
-  ? getFirestore(firebaseConfig.firestoreDatabaseId)
-  : (firebaseConfig ? getFirestore() : null);
 
 // Load State from data.json (local fallback/seeding)
 const loadState = () => {
@@ -124,10 +125,11 @@ const saveState = async () => {
 
     // 4. Save to Firestore in real-time
     if (db) {
-      const batch = db.batch();
+      const batch = writeBatch(db);
       const keys: (keyof AppState)[] = ["vendors", "stock", "sales", "trades", "cashouts", "tradeIns"];
+      const collectionRef = collection(db, "marketState");
       keys.forEach((key) => {
-        const docRef = db.collection("marketState").doc(key);
+        const docRef = doc(collectionRef, key);
         batch.set(docRef, { data: state[key] || [] });
       });
       await batch.commit();
@@ -153,18 +155,18 @@ const initializeDatabase = async () => {
   }
 
   try {
-    const collectionRef = db.collection("marketState");
-    const snapshot = await collectionRef.get();
+    const collectionRef = collection(db, "marketState");
+    const snapshot = await getDocs(collectionRef);
 
     if (snapshot.empty) {
       console.log("Firestore is empty. Seeding Firestore with local data.json contents...");
       // Load current local state
       loadState();
       // Seed Firestore
-      const batch = db.batch();
+      const batch = writeBatch(db);
       const keys: (keyof AppState)[] = ["vendors", "stock", "sales", "trades", "cashouts", "tradeIns"];
       keys.forEach((key) => {
-        const docRef = collectionRef.doc(key);
+        const docRef = doc(collectionRef, key);
         batch.set(docRef, { data: state[key] || [] });
       });
       await batch.commit();
@@ -184,7 +186,7 @@ const initializeDatabase = async () => {
     }
 
     // Set up real-time listener for any external updates (e.g. from other devices/containers)
-    collectionRef.onSnapshot((snap) => {
+    onSnapshot(collectionRef, (snap) => {
       let changed = false;
       snap.docChanges().forEach((change) => {
         const key = change.doc.id as keyof AppState;
