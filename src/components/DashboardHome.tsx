@@ -1,15 +1,17 @@
 import React from 'react';
-import { TrendingUp, DollarSign, Clock, Coins, Percent, ArrowUpRight, CheckCircle2, ShieldCheck } from 'lucide-react';
-import { Sale, Vendor } from '../types';
+import { TrendingUp, DollarSign, Clock, Coins, Percent, ArrowUpRight, CheckCircle2, ShieldCheck, Scale, ArrowDownRight, ClipboardList } from 'lucide-react';
+import { Sale, Vendor, CashoutRequest, TradeIn } from '../types';
 import { isSaleMature, getRemainingDays, getPayoutDate } from '../payoutUtils';
 
 interface DashboardHomeProps {
   vendor: Vendor;
   sales: Sale[];
+  cashouts: CashoutRequest[];
+  tradeIns: TradeIn[];
   onNavigate: (tab: string) => void;
 }
 
-export default function DashboardHome({ vendor, sales, onNavigate }: DashboardHomeProps) {
+export default function DashboardHome({ vendor, sales, cashouts, tradeIns, onNavigate }: DashboardHomeProps) {
   // Filter sales for this vendor
   const vendorSales = sales.filter((s) => s.vendorId === vendor.id);
 
@@ -48,6 +50,31 @@ export default function DashboardHome({ vendor, sales, onNavigate }: DashboardHo
       }
     }
   });
+
+  // Filter cashouts & trade-ins for this vendor
+  const vendorCashouts = cashouts.filter((c) => c.vendorId === vendor.id);
+  const vendorTradeIns = tradeIns.filter((t) => t.vendorId === vendor.id);
+
+  // Total pending cashout requests
+  const pendingCashoutsAmount = vendorCashouts
+    .filter((c) => c.status === 'pending')
+    .reduce((sum, c) => sum + c.amount, 0);
+
+  // Total pending payouts (sales on hold + pending cashout requests)
+  const totalPendingPayouts = pendingCash + pendingCashoutsAmount;
+
+  // Total spent on trade-ins (approved negative trade-ins, logged at the till)
+  const spentOnTradeIns = vendorTradeIns
+    .filter((t) => t.status === 'approved' && t.creditApplied < 0)
+    .reduce((sum, t) => sum + Math.abs(t.creditApplied), 0);
+
+  // Total credit earned (approved positive trade-ins logged by vendor)
+  const earnedTradeCredit = vendorTradeIns
+    .filter((t) => t.status === 'approved' && t.creditApplied > 0)
+    .reduce((sum, t) => sum + t.creditApplied, 0);
+
+  // Consolidated overall balance
+  const consolidatedBalance = availableCash + pendingCash + vendor.tradeCredit + pendingCashoutsAmount;
 
   // Calculate overall gross and net sales
   const allTimeGross = vendorSales.reduce((acc, s) => acc + s.price, 0);
@@ -143,10 +170,10 @@ export default function DashboardHome({ vendor, sales, onNavigate }: DashboardHo
               Pending Payouts
             </span>
             <span className="text-2xl font-bold text-zinc-900 tracking-tight block mt-0.5">
-              £{pendingCash.toFixed(2)}
+              £{totalPendingPayouts.toFixed(2)}
             </span>
             <span className="text-[10px] font-semibold text-zinc-400 block mt-1">
-              Matures Fri (13-16d hold)
+              Hold: £{pendingCash.toFixed(2)} • Requests: £{pendingCashoutsAmount.toFixed(2)}
             </span>
           </div>
         </div>
@@ -169,8 +196,89 @@ export default function DashboardHome({ vendor, sales, onNavigate }: DashboardHo
               £{vendor.tradeCredit.toFixed(2)}
             </span>
             <span className="text-[10px] font-semibold text-zinc-400 block mt-1">
-              For stall & customer trade-ins
+              Earned: £{earnedTradeCredit.toFixed(2)} • Spent: £{spentOnTradeIns.toFixed(2)}
             </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Stall Financial Ledger & Balance Sheet (Bento Card) */}
+      <div className="bg-white rounded-xl border border-zinc-200 p-6 shadow-sm space-y-6">
+        <div>
+          <h3 className="text-sm font-black text-zinc-950 uppercase tracking-wider flex items-center gap-2">
+            <Scale className="w-4.5 h-4.5 text-zinc-700" /> Stall Ledger & Financial Balance Sheet
+          </h3>
+          <p className="text-xs text-zinc-400 font-medium mt-1">
+            Detailed breakdown of pending payouts, trade-in investments, and net account balances
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 divide-y md:divide-y-0 md:divide-x divide-zinc-200">
+          {/* Column 1: Pending Payouts */}
+          <div className="space-y-4 pr-0 md:pr-4">
+            <span className="text-[10px] font-bold text-amber-700 uppercase tracking-widest block bg-amber-50 border border-amber-100/50 px-2.5 py-1 rounded w-fit">
+              1. Pending Payouts
+            </span>
+            <div className="space-y-2.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-zinc-500 font-medium">Sales on Hold (13-16d hold):</span>
+                <span className="font-extrabold text-zinc-800">£{pendingCash.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-zinc-500 font-medium">Awaiting Newton Approval:</span>
+                <span className="font-extrabold text-zinc-800">£{pendingCashoutsAmount.toFixed(2)}</span>
+              </div>
+              <div className="pt-2 border-t border-dashed border-zinc-200 flex justify-between text-xs font-black">
+                <span className="text-zinc-900 uppercase tracking-wider">Total Pending Payouts:</span>
+                <span className="text-zinc-950 text-sm">£{totalPendingPayouts.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Column 2: Trade-In Expenditure */}
+          <div className="space-y-4 pt-4 md:pt-0 md:px-6">
+            <span className="text-[10px] font-bold text-zinc-700 uppercase tracking-widest block bg-zinc-100 border border-zinc-200/50 px-2.5 py-1 rounded w-fit">
+              2. Trade-In Ledger
+            </span>
+            <div className="space-y-2.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-zinc-500 font-medium">Store Credit Received:</span>
+                <span className="font-extrabold text-emerald-600">＋£{earnedTradeCredit.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-zinc-500 font-medium">Spent on Customer Trade-Ins:</span>
+                <span className="font-extrabold text-red-600">－£{spentOnTradeIns.toFixed(2)}</span>
+              </div>
+              <div className="pt-2 border-t border-dashed border-zinc-200 flex justify-between text-xs font-black">
+                <span className="text-zinc-900 uppercase tracking-wider">Trade Credit Balance:</span>
+                <span className="text-zinc-950 text-sm">£{vendor.tradeCredit.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Column 3: Current Balances & Net Worth */}
+          <div className="space-y-4 pt-4 md:pt-0 md:pl-6">
+            <span className="text-[10px] font-bold text-blue-700 uppercase tracking-widest block bg-blue-50 border border-blue-100/50 px-2.5 py-1 rounded w-fit">
+              3. Account Balance
+            </span>
+            <div className="space-y-2.5">
+              <div className="flex justify-between text-xs">
+                <span className="text-zinc-500 font-medium">Withdrawable Cash (Cleared):</span>
+                <span className="font-extrabold text-zinc-800">£{availableCash.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-zinc-500 font-medium">Pending Funds (Hold/Requests):</span>
+                <span className="font-extrabold text-zinc-800">£{totalPendingPayouts.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-zinc-500 font-medium">Trade Credit Balance:</span>
+                <span className="font-extrabold text-zinc-800">£{vendor.tradeCredit.toFixed(2)}</span>
+              </div>
+              <div className="pt-2 border-t border-zinc-200 flex justify-between text-xs font-black">
+                <span className="text-zinc-900 uppercase tracking-wider">Consolidated Stall Balance:</span>
+                <span className="text-blue-600 text-sm">£{consolidatedBalance.toFixed(2)}</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

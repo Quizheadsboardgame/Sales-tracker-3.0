@@ -74,6 +74,29 @@ export default function App() {
       setUserRole(savedRole as 'vendor' | 'admin');
       setActiveTab(savedRole === 'admin' ? 'admin' : 'home');
     }
+
+    // Connect to real-time updates via Server-Sent Events (SSE)
+    const eventSource = new EventSource('/api/updates');
+
+    eventSource.onmessage = (event) => {
+      if (event.data === 'connected') return;
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === 'update') {
+          refreshAppState();
+        }
+      } catch (err) {
+        console.error("Error parsing SSE real-time payload:", err);
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.warn("Real-time SSE connection disconnected, auto-retrying...", err);
+    };
+
+    return () => {
+      eventSource.close();
+    };
   }, []);
 
   // Update localStorage session on state changes
@@ -698,6 +721,8 @@ export default function App() {
           <DashboardHome
             vendor={activeVendorObject}
             sales={sales}
+            cashouts={cashouts}
+            tradeIns={tradeIns}
             onNavigate={(tab) => setActiveTab(tab)}
           />
         )}

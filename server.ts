@@ -49,10 +49,26 @@ const loadState = () => {
   }
 };
 
+// Store active SSE clients
+let sseClients: { id: number; res: any }[] = [];
+
+// Broadcast helper
+const broadcastUpdate = () => {
+  const data = JSON.stringify({ type: "update" });
+  sseClients.forEach((client) => {
+    try {
+      client.res.write(`data: ${data}\n\n`);
+    } catch (err) {
+      console.error("Error writing to SSE client", err);
+    }
+  });
+};
+
 // Save State to data.json
 const saveState = () => {
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(state, null, 2), "utf-8");
+    broadcastUpdate();
   } catch (err) {
     console.error("Error writing database file", err);
   }
@@ -98,6 +114,27 @@ app.post("/api/login", (req, res) => {
 app.get("/api/state", (req, res) => {
   // Return whole state. Authorization/filtering happens client side or is passed via queries
   res.json(state);
+});
+
+// Real-time updates subscription endpoint via Server-Sent Events (SSE)
+app.get("/api/updates", (req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive"
+  });
+
+  // Send initial handshake
+  res.write("data: connected\n\n");
+
+  const clientId = Date.now() + Math.random();
+  const newClient = { id: clientId, res };
+  sseClients.push(newClient);
+
+  // Client connection teardown
+  req.on("close", () => {
+    sseClients = sseClients.filter((c) => c.id !== clientId);
+  });
 });
 
 // Update Vendor detail (Admin only)
