@@ -2,6 +2,8 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import dotenv from "dotenv";
+import { initializeApp, getApps } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 import { createServer as createViteServer } from "vite";
 import { AppState, Vendor, StockItem, Sale, TradeProposal, CashoutRequest, TradeIn } from "./src/types";
 import { isSaleMature } from "./src/payoutUtils";
@@ -35,14 +37,34 @@ const DEFAULT_STATE: AppState = {
 // Database state in-memory cache
 let state: AppState = { ...DEFAULT_STATE };
 
-// Load State from data.json
+// Parse Firebase configuration if available
+const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+let firebaseConfig: any = null;
+try {
+  if (fs.existsSync(configPath)) {
+    firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+  }
+} catch (e) {
+  console.error("Error reading firebase-applet-config.json:", e);
+}
+
+// Initialize firebase-admin if config is available
+if (firebaseConfig && getApps().length === 0) {
+  initializeApp({
+    projectId: firebaseConfig.projectId,
+  });
+}
+
+const db = firebaseConfig && firebaseConfig.firestoreDatabaseId
+  ? getFirestore(firebaseConfig.firestoreDatabaseId)
+  : (firebaseConfig ? getFirestore() : null);
+
+// Load State from data.json (local fallback/seeding)
 const loadState = () => {
   try {
     if (fs.existsSync(DB_FILE)) {
       const raw = fs.readFileSync(DB_FILE, "utf-8");
       state = JSON.parse(raw);
-    } else {
-      saveState();
     }
   } catch (err) {
     console.error("Error loading database file, using in-memory state", err);
@@ -64,8 +86,8 @@ const broadcastUpdate = () => {
   });
 };
 
-// Save State to data.json and keep backups
-const saveState = () => {
+// Save State to data.json and keep backups, syncing to Firestore
+const saveState = async () => {
   try {
     // 1. Save main DB_FILE
     fs.writeFileSync(DB_FILE, JSON.stringify(state, null, 2), "utf-8");
@@ -100,14 +122,101 @@ const saveState = () => {
       }
     }
 
-    broadcastUpdate();
+    // 4. Save to Firestore in real-time
+    if (db) {
+      const batch = db.batch();
+      const keys: (keyof AppState)[] = ["vendors", "stock", "sales", "trades", "cashouts", "tradeIns"];
+      keys.forEach((key) => {
+        const docRef = db.collection("marketState").doc(key);
+        batch.set(docRef, { data: state[key] || [] });
+      });
+      await batch.commit();
+      console.log("State written to Firestore successfully!");
+    } else {
+      broadcastUpdate();
+    }
   } catch (err) {
     console.error("Error writing database file and creating backups", err);
   }
 };
 
-// Load database immediately
-loadState();
+// Initialize Database connection and synchronize state
+const initializeDatabase = async () => {
+  if (!db) {
+    console.log("Firebase config not found, running with local file persistence only.");
+    loadState();
+    // Save once if data.json doesn't exist
+    if (!fs.existsSync(DB_FILE)) {
+      saveState();
+    }
+    return;
+  }
+
+  try {
+    const collectionRef = db.collection("marketState");
+    const snapshot = await collectionRef.get();
+
+    if (snapshot.empty) {
+      console.log("Firestore is empty. Seeding Firestore with local data.json contents...");
+      // Load current local state
+      loadState();
+      // Seed Firestore
+      const batch = db.batch();
+      const keys: (keyof AppState)[] = ["vendors", "stock", "sales", "trades", "cashouts", "tradeIns"];
+      keys.forEach((key) => {
+        const docRef = collectionRef.doc(key);
+        batch.set(docRef, { data: state[key] || [] });
+      });
+      await batch.commit();
+      console.log("Firestore seeding completed successfully!");
+    } else {
+      console.log("Loading state from Firestore...");
+      snapshot.forEach((doc) => {
+        const key = doc.id as keyof AppState;
+        const val = doc.data()?.data;
+        if (val && Array.isArray(val)) {
+          (state as any)[key] = val;
+        }
+      });
+      // Save local cache copy
+      fs.writeFileSync(DB_FILE, JSON.stringify(state, null, 2), "utf-8");
+      console.log("State loaded successfully from Firestore.");
+    }
+
+    // Set up real-time listener for any external updates (e.g. from other devices/containers)
+    collectionRef.onSnapshot((snap) => {
+      let changed = false;
+      snap.docChanges().forEach((change) => {
+        const key = change.doc.id as keyof AppState;
+        const val = change.doc.data()?.data;
+        if (val && Array.isArray(val)) {
+          // Compare JSON string to avoid redundant writes/broadcasts
+          const currentStr = JSON.stringify(state[key] || []);
+          const newStr = JSON.stringify(val || []);
+          if (currentStr !== newStr) {
+            (state as any)[key] = val;
+            changed = true;
+          }
+        }
+      });
+
+      if (changed) {
+        console.log("Real-time update received from Firestore, syncing local cache & broadcasting...");
+        fs.writeFileSync(DB_FILE, JSON.stringify(state, null, 2), "utf-8");
+        broadcastUpdate();
+      }
+    }, (err) => {
+      console.error("Firestore onSnapshot error:", err);
+    });
+
+  } catch (err) {
+    console.error("Failed to initialize Firestore connection. Falling back to local data.json.", err);
+    loadState();
+  }
+};
+
+// Initialize database immediately
+initializeDatabase();
 
 // -----------------------------------------------------------------------------
 // API ENDPOINTS
