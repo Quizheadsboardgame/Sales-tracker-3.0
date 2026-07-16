@@ -64,13 +64,45 @@ const broadcastUpdate = () => {
   });
 };
 
-// Save State to data.json
+// Save State to data.json and keep backups
 const saveState = () => {
   try {
+    // 1. Save main DB_FILE
     fs.writeFileSync(DB_FILE, JSON.stringify(state, null, 2), "utf-8");
+    
+    // 2. Save a mirror backup
+    const backupFile = path.join(process.cwd(), "data.backup.json");
+    fs.writeFileSync(backupFile, JSON.stringify(state, null, 2), "utf-8");
+
+    // 3. Keep a rotating historical backup in backups/ folder
+    const backupsDir = path.join(process.cwd(), "backups");
+    if (!fs.existsSync(backupsDir)) {
+      fs.mkdirSync(backupsDir, { recursive: true });
+    }
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const historicalFile = path.join(backupsDir, `state_backup_${timestamp}.json`);
+    fs.writeFileSync(historicalFile, JSON.stringify(state, null, 2), "utf-8");
+
+    // Prune backups to keep the 15 most recent
+    const files = fs.readdirSync(backupsDir)
+      .filter(f => f.startsWith("state_backup_") && f.endsWith(".json"))
+      .map(f => ({ name: f, time: fs.statSync(path.join(backupsDir, f)).mtime.getTime() }))
+      .sort((a, b) => b.time - a.time);
+
+    if (files.length > 15) {
+      for (let i = 15; i < files.length; i++) {
+        try {
+          fs.unlinkSync(path.join(backupsDir, files[i].name));
+        } catch (e) {
+          console.error("Error pruning backup file", e);
+        }
+      }
+    }
+
     broadcastUpdate();
   } catch (err) {
-    console.error("Error writing database file", err);
+    console.error("Error writing database file and creating backups", err);
   }
 };
 
@@ -172,6 +204,151 @@ app.post("/api/admin/vendors", (req, res) => {
   state.vendors.push(newVendor);
   saveState();
   res.json({ success: true, vendor: newVendor });
+});
+
+// GET list of all available backups
+app.get("/api/admin/backups", (req, res) => {
+  try {
+    const backupsDir = path.join(process.cwd(), "backups");
+    if (!fs.existsSync(backupsDir)) {
+      fs.mkdirSync(backupsDir, { recursive: true });
+    }
+    const files = fs.readdirSync(backupsDir)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => {
+        const filePath = path.join(backupsDir, f);
+        const stats = fs.statSync(filePath);
+        return {
+          filename: f,
+          size: stats.size,
+          mtime: stats.mtime.toISOString(),
+        };
+      })
+      .sort((a, b) => b.mtime.localeCompare(a.mtime));
+
+    const backupFile = path.join(process.cwd(), "data.backup.json");
+    res.json({
+      backups: files,
+      currentDbSize: fs.existsSync(DB_FILE) ? fs.statSync(DB_FILE).size : 0,
+      currentDbMtime: fs.existsSync(DB_FILE) ? fs.statSync(DB_FILE).mtime.toISOString() : null,
+      mirrorDbSize: fs.existsSync(backupFile) ? fs.statSync(backupFile).size : 0,
+      mirrorDbMtime: fs.existsSync(backupFile) ? fs.statSync(backupFile).mtime.toISOString() : null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST to create a manual timestamped backup
+app.post("/api/admin/backups/create", (req, res) => {
+  try {
+    const backupsDir = path.join(process.cwd(), "backups");
+    if (!fs.existsSync(backupsDir)) {
+      fs.mkdirSync(backupsDir, { recursive: true });
+    }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const manualFile = path.join(backupsDir, `state_manual_${timestamp}.json`);
+    fs.writeFileSync(manualFile, JSON.stringify(state, null, 2), "utf-8");
+    res.json({ success: true, filename: `state_manual_${timestamp}.json` });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST to restore database state from a file
+app.post("/api/admin/backups/restore", (req, res) => {
+  const { filename } = req.body;
+  if (!filename) {
+    res.status(400).json({ error: "Filename is required" });
+    return;
+  }
+  try {
+    let targetPath = DB_FILE;
+    if (filename === "backup") {
+      targetPath = path.join(process.cwd(), "data.backup.json");
+    } else if (filename !== "current") {
+      const cleanName = path.basename(filename);
+      targetPath = path.join(process.cwd(), "backups", cleanName);
+    }
+
+    if (!fs.existsSync(targetPath)) {
+      res.status(404).json({ error: "Selected backup file does not exist" });
+      return;
+    }
+
+    const raw = fs.readFileSync(targetPath, "utf-8");
+    const parsed = JSON.parse(raw);
+
+    if (!parsed.vendors || !parsed.stock || !parsed.sales) {
+      res.status(400).json({ error: "Invalid database backup file format" });
+      return;
+    }
+
+    state = parsed;
+    saveState();
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to restore: " + err.message });
+  }
+});
+
+// POST to upload a custom JSON database backup
+app.post("/api/admin/backups/upload", (req, res) => {
+  const { payload } = req.body;
+  if (!payload) {
+    res.status(400).json({ error: "Backup JSON payload is required" });
+    return;
+  }
+  try {
+    let parsed: any;
+    if (typeof payload === "string") {
+      parsed = JSON.parse(payload);
+    } else {
+      parsed = payload;
+    }
+
+    if (!parsed.vendors || !parsed.stock || !parsed.sales) {
+      res.status(400).json({ error: "Invalid backup database schema. Missing vendors, stock, or sales keys." });
+      return;
+    }
+
+    state = parsed;
+    saveState();
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: "Invalid JSON format: " + err.message });
+  }
+});
+
+// GET to download a database backup file
+app.get("/api/admin/backups/download", (req, res) => {
+  const { file } = req.query;
+  try {
+    let targetPath = DB_FILE;
+    let downloadName = "newtons_market_database.json";
+
+    if (file && typeof file === "string" && file !== "current") {
+      if (file === "backup") {
+        targetPath = path.join(process.cwd(), "data.backup.json");
+        downloadName = "data.backup.json";
+      } else {
+        const cleanName = path.basename(file);
+        targetPath = path.join(process.cwd(), "backups", cleanName);
+        downloadName = cleanName;
+      }
+    }
+
+    if (!fs.existsSync(targetPath)) {
+      res.status(404).send("Backup file not found on disk");
+      return;
+    }
+
+    res.setHeader("Content-Disposition", `attachment; filename="${downloadName}"`);
+    res.setHeader("Content-Type", "application/json");
+    res.sendFile(targetPath);
+  } catch (err: any) {
+    res.status(500).send(err.message);
+  }
 });
 
 // Log a sale (from Joint Staff page or vendor themselves)

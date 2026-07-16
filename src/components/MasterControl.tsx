@@ -54,7 +54,129 @@ export default function MasterControl({
   };
 
   // Tabs for Master Control
-  const [activeTab, setActiveTab] = useState<'vendors' | 'cashouts' | 'tradeins' | 'sales'>('vendors');
+  const [activeTab, setActiveTab] = useState<'vendors' | 'cashouts' | 'tradeins' | 'sales' | 'backups'>('vendors');
+
+  // Backups Management States
+  const [backupsList, setBackupsList] = useState<{ filename: string; size: number; mtime: string }[]>([]);
+  const [currentDbSize, setCurrentDbSize] = useState<number>(0);
+  const [currentDbMtime, setCurrentDbMtime] = useState<string | null>(null);
+  const [mirrorDbSize, setMirrorDbSize] = useState<number>(0);
+  const [mirrorDbMtime, setMirrorDbMtime] = useState<string | null>(null);
+  const [backupTabLoading, setBackupTabLoading] = useState(false);
+  const [customBackupJson, setCustomBackupJson] = useState('');
+  const [restoringFile, setRestoringFile] = useState<string | null>(null);
+
+  const fetchBackups = async () => {
+    setBackupTabLoading(true);
+    try {
+      const res = await fetch('/api/admin/backups');
+      if (res.ok) {
+        const data = await res.json();
+        setBackupsList(data.backups || []);
+        setCurrentDbSize(data.currentDbSize || 0);
+        setCurrentDbMtime(data.currentDbMtime || null);
+        setMirrorDbSize(data.mirrorDbSize || 0);
+        setMirrorDbMtime(data.mirrorDbMtime || null);
+      }
+    } catch (err) {
+      console.error("Error loading database backups:", err);
+    } finally {
+      setBackupTabLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (activeTab === 'backups') {
+      fetchBackups();
+    }
+  }, [activeTab]);
+
+  const handleCreateBackup = async () => {
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch('/api/admin/backups/create', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setSuccess(`Backup file successfully created: ${data.filename}`);
+        fetchBackups();
+      } else {
+        const errData = await res.json();
+        setError(errData.error || "Failed to create manual backup file.");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to create manual backup file.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRestoreBackup = async (filename: string) => {
+    const confirmationMsg = filename === 'backup' 
+      ? "Are you absolutely sure you want to restore from the mirror database backup (data.backup.json)?\n\nThis will completely restore your previous state and replace all currently loaded sales, stocks, and vendors."
+      : `Are you absolutely sure you want to restore the entire database from "${filename}"?\n\nThis will replace all loaded data on all logged-in devices in real time!`;
+      
+    if (!window.confirm(confirmationMsg)) {
+      return;
+    }
+    setRestoringFile(filename);
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch('/api/admin/backups/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename })
+      });
+      if (res.ok) {
+        setSuccess(`Stall database state successfully restored from backup!`);
+        fetchBackups();
+      } else {
+        const errData = await res.json();
+        setError(errData.error || "Failed to restore database state.");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to restore database state.");
+    } finally {
+      setLoading(false);
+      setRestoringFile(null);
+    }
+  };
+
+  const handleUploadBackup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customBackupJson.trim()) {
+      setError("Please paste a valid JSON database backup payload first.");
+      return;
+    }
+    if (!window.confirm("Warning: Restoring from uploaded custom JSON payload will overwrite all active data on all devices. Are you sure?")) {
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch('/api/admin/backups/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload: customBackupJson })
+      });
+      if (res.ok) {
+        setSuccess("Database successfully restored from custom JSON upload!");
+        setCustomBackupJson('');
+        fetchBackups();
+      } else {
+        const errData = await res.json();
+        setError(errData.error || "Failed to parse or restore uploaded data.");
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to upload JSON backup payload.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Edit vendor modal form state
   const [editingVendorId, setEditingVendorId] = useState<string | null>(null);
@@ -354,6 +476,16 @@ export default function MasterControl({
         >
           Sales Ledger ({sales.length})
           {activeTab === 'sales' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
+        </button>
+        <button
+          id="btn-admin-backups"
+          onClick={() => setActiveTab('backups')}
+          className={`pb-3 text-xs font-bold transition-all relative whitespace-nowrap focus:outline-none ${
+            activeTab === 'backups' ? 'text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'
+          }`}
+        >
+          Database & Backups 💾
+          {activeTab === 'backups' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
         </button>
       </div>
 
@@ -694,6 +826,201 @@ export default function MasterControl({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Panel 5: DATABASE BACKUPS & REALTIME STORAGE */}
+      {activeTab === 'backups' && (
+        <div className="space-y-6">
+          <div>
+            <h3 className="text-sm font-extrabold text-zinc-900 uppercase tracking-wider flex items-center gap-2">
+              <span className="p-1 bg-zinc-100 rounded text-zinc-700">💾</span> Database & Backup Management
+            </h3>
+            <p className="text-xs text-zinc-500 font-medium mt-1">
+              Automated system-mirror backups, rolling historical restore-points, and raw JSON utility tools. State updates are broadcasted to all active devices in real time.
+            </p>
+          </div>
+
+          {/* Quick Stats Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-1">
+              <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Active Database (data.json)</span>
+              <span className="text-base font-extrabold text-zinc-800 block">
+                {currentDbSize ? `${(currentDbSize / 1024).toFixed(2)} KB` : '0.00 KB'}
+              </span>
+              <span className="text-[10px] text-zinc-400 font-semibold block mt-1">
+                Last Write: {currentDbMtime ? new Date(currentDbMtime).toLocaleString('en-GB') : 'Never'}
+              </span>
+            </div>
+
+            <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-1">
+              <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">System-Mirror Backup (data.backup.json)</span>
+              <span className="text-base font-extrabold text-emerald-600 block">
+                {mirrorDbSize ? `${(mirrorDbSize / 1024).toFixed(2)} KB` : '0.00 KB'}
+              </span>
+              <span className="text-[10px] text-zinc-400 font-semibold block mt-1">
+                Status: Safe & Synced
+              </span>
+            </div>
+
+            <div className="bg-zinc-50 border border-zinc-200 rounded-xl p-4 space-y-1">
+              <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest block">Historical Restore Points</span>
+              <span className="text-base font-extrabold text-blue-600 block">
+                {backupsList.length} Saved Files
+              </span>
+              <span className="text-[10px] text-zinc-400 font-semibold block mt-1">
+                Max Rotation limit: 15 files
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* List of Historical Backups & Restores */}
+            <div className="lg:col-span-7 space-y-4">
+              <div className="flex justify-between items-center bg-white border border-zinc-200 p-4 rounded-xl shadow-xs">
+                <div>
+                  <h4 className="text-xs font-black text-zinc-800 uppercase tracking-wider">Historical Restore Points</h4>
+                  <p className="text-[10px] text-zinc-400 font-bold">Instantly rollback to any previous version</p>
+                </div>
+                <button
+                  id="btn-trigger-backup"
+                  onClick={handleCreateBackup}
+                  disabled={loading || backupTabLoading}
+                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:bg-zinc-200 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Force Backup Now
+                </button>
+              </div>
+
+              {backupTabLoading ? (
+                <div className="py-12 text-center bg-white border border-zinc-200 rounded-xl">
+                  <RefreshCw className="w-5 h-5 animate-spin mx-auto text-zinc-400" />
+                  <p className="text-xs text-zinc-500 font-bold mt-2">Scanning backups directory...</p>
+                </div>
+              ) : (
+                <div className="bg-white border border-zinc-200 rounded-xl shadow-xs overflow-hidden divide-y divide-zinc-200">
+                  {/* System Mirror Quick Restore Block */}
+                  <div className="p-4 bg-zinc-50/50 flex justify-between items-center text-xs">
+                    <div>
+                      <span className="text-[9px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                        Immediate Mirror
+                      </span>
+                      <h5 className="font-extrabold text-zinc-800 mt-1">data.backup.json</h5>
+                      <p className="text-[10px] text-zinc-400 font-semibold mt-0.5">
+                        Dual-write safety mirror kept automatically in root
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <a
+                        href="/api/admin/backups/download?file=backup"
+                        download="data.backup.json"
+                        className="px-2.5 py-1.5 bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 rounded text-[11px] font-bold transition-all cursor-pointer"
+                      >
+                        Download 📥
+                      </a>
+                      <button
+                        onClick={() => handleRestoreBackup('backup')}
+                        disabled={loading}
+                        className="px-2.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded text-[11px] font-bold transition-all cursor-pointer"
+                      >
+                        {restoringFile === 'backup' ? 'Restoring...' : 'Restore State ⚡'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Loop over historical backups */}
+                  {backupsList.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-zinc-400 font-bold">
+                      No timestamped backups exist yet. Make changes or click "Force Backup Now" to create one.
+                    </div>
+                  ) : (
+                    backupsList.map((bk) => (
+                      <div key={bk.filename} className="p-4 flex justify-between items-center text-xs">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="p-0.5 bg-zinc-100 text-zinc-600 rounded text-[9px] font-extrabold uppercase">
+                              {bk.filename.includes('manual') ? 'Manual File' : 'Auto File'}
+                            </span>
+                            <span className="font-extrabold text-zinc-700 truncate max-w-[200px] sm:max-w-xs" title={bk.filename}>
+                              {bk.filename}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-zinc-400 font-medium">
+                            Size: {(bk.size / 1024).toFixed(2)} KB • Date: {new Date(bk.mtime).toLocaleString('en-GB')}
+                          </p>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <a
+                            href={`/api/admin/backups/download?file=${bk.filename}`}
+                            download={bk.filename}
+                            className="px-2.5 py-1.5 bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200 rounded text-[11px] font-bold transition-all cursor-pointer"
+                          >
+                            Download 📥
+                          </a>
+                          <button
+                            onClick={() => handleRestoreBackup(bk.filename)}
+                            disabled={loading}
+                            className="px-2.5 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded text-[11px] font-bold transition-all cursor-pointer"
+                          >
+                            {restoringFile === bk.filename ? 'Restoring...' : 'Restore'}
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Custom JSON DB Overwrite tool */}
+            <div className="lg:col-span-5 space-y-4">
+              <div className="bg-white border border-zinc-200 p-5 rounded-xl shadow-xs space-y-4">
+                <div>
+                  <h4 className="text-xs font-black text-zinc-900 uppercase tracking-wider">Raw JSON Database Utility</h4>
+                  <p className="text-[10px] text-zinc-400 font-bold mt-0.5">Direct state export or live JSON overwriting</p>
+                </div>
+
+                <div className="space-y-2 text-xs font-semibold text-zinc-500">
+                  <p>You can download the active database below, or overwrite the active state by pasting raw JSON code:</p>
+                  <div className="flex gap-2">
+                    <a
+                      href="/api/admin/backups/download?file=current"
+                      className="w-full text-center px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-xs font-bold transition-all shadow-xs block"
+                    >
+                      Export Database file (data.json) 📥
+                    </a>
+                  </div>
+                </div>
+
+                <form onSubmit={handleUploadBackup} className="space-y-3">
+                  <div>
+                    <label className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider block mb-1">
+                      Paste JSON Backup Payload to Overwrite
+                    </label>
+                    <textarea
+                      placeholder='Pasted payload must contain {"vendors": [], "stock": [], "sales": [], ...} keys'
+                      value={customBackupJson}
+                      onChange={(e) => setCustomBackupJson(e.target.value)}
+                      rows={6}
+                      className="w-full bg-zinc-50 border border-zinc-200 hover:border-zinc-300 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-600 text-[11px] font-mono rounded-lg p-3 outline-none transition-all leading-normal"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading || !customBackupJson.trim()}
+                    className="w-full py-2 bg-red-600 hover:bg-red-700 text-white disabled:bg-zinc-200 disabled:text-zinc-400 font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs"
+                  >
+                    Overwrite Database State ⚡
+                  </button>
+                </form>
+
+                <div className="bg-amber-50 border border-amber-200/50 rounded-lg p-3 text-[10px] text-amber-800 font-semibold leading-relaxed">
+                  ⚠️ WARNING: Overwriting active state immediately publishes updates to all connected devices in real-time. Make sure to download a copy of the database beforehand!
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
