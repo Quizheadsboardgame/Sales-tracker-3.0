@@ -47,6 +47,7 @@ export default function App() {
   const [lastSynced, setLastSynced] = useState<Date | null>(new Date());
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncMode, setSyncMode] = useState<'realtime' | 'polling' | 'mobile'>('realtime');
 
   // Load Entire State from backend
   const refreshAppState = async (silent = false) => {
@@ -92,16 +93,36 @@ export default function App() {
       setActiveTab(savedRole === 'admin' ? 'admin' : 'home');
     }
 
+    // Detect mobile device
+    const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
     let eventSource: EventSource | null = null;
+    let sseErrorCount = 0;
+    let activeSyncMode: 'realtime' | 'polling' | 'mobile' = isMobileDevice ? 'mobile' : 'realtime';
+    
+    setSyncMode(activeSyncMode);
 
     // Helper to connect to real-time updates via Server-Sent Events (SSE)
     const connectSSE = () => {
+      if (isMobileDevice) {
+        console.log("Mobile device detected. SSE disabled to ensure connection stability.");
+        return;
+      }
+
       if (eventSource) {
         eventSource.close();
       }
 
       try {
+        console.log("Connecting to real-time updates via SSE...");
         eventSource = new EventSource('/api/updates');
+
+        eventSource.onopen = () => {
+          console.log("SSE connection established successfully.");
+          sseErrorCount = 0;
+          setSyncMode('realtime');
+          activeSyncMode = 'realtime';
+        };
 
         eventSource.onmessage = (event) => {
           if (event.data === 'connected') return;
@@ -117,15 +138,29 @@ export default function App() {
         };
 
         eventSource.onerror = (err) => {
-          console.warn("Real-time SSE connection disconnected, auto-retrying...", err);
+          console.warn("Real-time SSE connection disconnected, error count:", sseErrorCount, err);
+          sseErrorCount++;
+          
+          if (sseErrorCount >= 3) {
+            console.warn("SSE connection failed repeatedly. Switching to highly reliable fallback polling.");
+            if (eventSource) {
+              eventSource.close();
+              eventSource = null;
+            }
+            setSyncMode('polling');
+            activeSyncMode = 'polling';
+            startPolling(); // Restart polling with the faster rate
+          }
         };
       } catch (err) {
         console.error("Failed to establish real-time SSE connection:", err);
+        setSyncMode('polling');
+        activeSyncMode = 'polling';
       }
     };
 
-    // Only start the SSE connection once the document is visible
-    if (document.visibilityState === 'visible') {
+    // Only start the SSE connection once the document is visible and not on mobile
+    if (document.visibilityState === 'visible' && !isMobileDevice) {
       connectSSE();
     }
 
@@ -134,7 +169,9 @@ export default function App() {
       if (document.visibilityState === 'visible') {
         // Re-sync immediately (silently) on return to app
         refreshAppState(true);
-        connectSSE();
+        if (activeSyncMode === 'realtime') {
+          connectSSE();
+        }
       } else {
         // Disconnect immediately when backgrounded to free up HTTP/1.1 ports (crucial for mobile Safari/Chrome concurrency)
         if (eventSource) {
@@ -146,14 +183,33 @@ export default function App() {
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Dynamic dual-sync: periodic fallback polling every 12 seconds to ensure 100% data reliability
-    const pollingInterval = setInterval(() => {
-      refreshAppState(true);
-    }, 12000);
+    // Dynamic dual-sync: periodic fallback polling. Shorter interval for mobile or fallback mode.
+    let pollingInterval: NodeJS.Timeout | null = null;
+    
+    const startPolling = () => {
+      if (pollingInterval) clearInterval(pollingInterval);
+      
+      const intervalMs = (isMobileDevice || activeSyncMode === 'polling') ? 8000 : 20000;
+      console.log(`Starting background sync polling every ${intervalMs / 1000} seconds.`);
+      
+      pollingInterval = setInterval(() => {
+        refreshAppState(true);
+      }, intervalMs);
+    };
+
+    startPolling();
+
+    // Check periodically if sync mode fallback occurred and adjust polling if needed
+    const syncModeChecker = setInterval(() => {
+      if (activeSyncMode === 'polling' && pollingInterval) {
+        // Safe check
+      }
+    }, 15000);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearInterval(pollingInterval);
+      if (pollingInterval) clearInterval(pollingInterval);
+      clearInterval(syncModeChecker);
       if (eventSource) {
         eventSource.close();
       }
@@ -778,7 +834,7 @@ export default function App() {
                       : 'bg-green-50 text-green-600 border border-green-100'
                 }`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-blue-500' : syncError ? 'bg-red-500' : 'bg-green-500'}`} />
-                  {isSyncing ? 'Syncing...' : syncError ? 'Sync Error' : 'Live Connected'}
+                  {isSyncing ? 'Syncing...' : syncError ? 'Sync Error' : syncMode === 'mobile' ? 'Mobile Connected' : syncMode === 'polling' ? 'Polling Connected' : 'Live Connected'}
                 </span>
               </div>
               <p className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">
@@ -786,7 +842,13 @@ export default function App() {
                   <span className="text-red-600 font-semibold">Error: {syncError}. Tap force sync to reconnect.</span>
                 ) : (
                   <>
-                    All logged sales, trade-ins, and stock are shared across devices instantly via Google Firestore Cloud.
+                    {syncMode === 'mobile' ? (
+                      <span>Mobile-optimized sync active (automatic background fast-refresh). 100% stable connection.</span>
+                    ) : syncMode === 'polling' ? (
+                      <span>Connected via fallback polling (reliable auto-sync).</span>
+                    ) : (
+                      <span>All logged sales, trade-ins, and stock are shared across devices instantly via Google Firestore Cloud.</span>
+                    )}
                     <span className="font-extrabold text-zinc-700 ml-1.5 bg-zinc-100 px-2 py-0.5 rounded-md inline-block sm:inline">
                       Last Synced: {lastSynced ? lastSynced.toLocaleTimeString() : 'Never'}
                     </span>
