@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Search, Plus, Check, CheckCircle2, RefreshCw, Sparkles, UserCheck, Calendar, Trash2, Edit2, X, TrendingUp, Coins, BarChart3 } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Check, CheckCircle2, RefreshCw, Sparkles, UserCheck, Calendar, Trash2, Edit2, X, TrendingUp, Coins, BarChart3, ChevronDown, ChevronUp } from 'lucide-react';
 import { StockItem, Vendor, Sale, CashoutRequest, TradeIn } from '../types';
 import { isSaleMature } from '../payoutUtils';
 
@@ -153,6 +153,26 @@ export default function JointStaffPage({
 
   // Today's transaction filter date defaulting to today's date
   const [filterDate, setFilterDate] = useState(() => getLocalDateOnlyString());
+
+  // Stats collapsible state
+  const [statsMinimized, setStatsMinimized] = useState(() => {
+    try {
+      const saved = localStorage.getItem('joint_stall_stats_minimized');
+      return saved === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleStatsMinimized = () => {
+    setStatsMinimized(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('joint_stall_stats_minimized', String(next));
+      } catch (e) {}
+      return next;
+    });
+  };
 
   // Status state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -482,99 +502,159 @@ export default function JointStaffPage({
       {/* Logged in vendor own stats banner (full width) */}
       {loggedInVendor && (
         <div className="col-span-1 lg:col-span-12 bg-white border border-zinc-200 rounded-xl p-5 shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-4 border-b border-zinc-100">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-zinc-100 mb-4">
             <div className="flex items-center gap-2.5">
               <div 
                 className="w-3 h-3 rounded-full shrink-0 shadow-xs animate-pulse" 
                 style={{ backgroundColor: loggedInVendor.color || '#3B82F6' }} 
               />
               <div>
-                <h4 className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider">
-                  Your Stall Stats: {loggedInVendor.name}
-                </h4>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider">
+                    Your Stall Stats: {loggedInVendor.name}
+                  </h4>
+                  {statsMinimized && (
+                    <div className="hidden md:flex items-center gap-2 text-[10px] text-zinc-500 font-bold bg-zinc-100 rounded-md px-2 py-0.5 ml-1">
+                      <span>Daily Net: <strong className="text-zinc-800">£{todayNet.toFixed(2)}</strong></span>
+                      <span className="text-zinc-300">•</span>
+                      <span>Overall Net: <strong className="text-zinc-800">£{overallNet.toFixed(2)}</strong></span>
+                      <span className="text-zinc-300">•</span>
+                      <span>Trade Credit: <strong className="text-blue-600">£{tradeCreditToSpend.toFixed(2)}</strong></span>
+                      <span className="text-zinc-300">•</span>
+                      <span>Balance: <strong className={overallBalance >= 0 ? "text-emerald-600" : "text-red-600"}>{overallBalance < 0 ? '-' : ''}£{Math.abs(overallBalance).toFixed(2)}</strong></span>
+                    </div>
+                  )}
+                </div>
                 <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mt-0.5">
                   Real-time register summary for your stall
                 </p>
               </div>
             </div>
-            <div className="inline-flex text-[10px] bg-zinc-100 font-bold text-zinc-600 px-2.5 py-1 rounded">
-              Commission Rate: {(loggedInVendor.commission * 100).toFixed(0)}%
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <div className="inline-flex text-[10px] bg-zinc-100 font-bold text-zinc-600 px-2.5 py-1.5 rounded">
+                Commission: {(loggedInVendor.commission * 100).toFixed(0)}%
+              </div>
+              <button
+                id="btn-toggle-stats"
+                type="button"
+                onClick={toggleStatsMinimized}
+                className="inline-flex items-center gap-1 px-2.5 py-1 border border-zinc-200 hover:bg-zinc-50 rounded text-[10px] font-bold text-zinc-600 hover:text-zinc-900 transition-colors cursor-pointer"
+                title={statsMinimized ? "Expand Overview" : "Minimize Overview"}
+              >
+                {statsMinimized ? (
+                  <>
+                    <ChevronDown className="w-3.5 h-3.5" />
+                    <span>Expand</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronUp className="w-3.5 h-3.5" />
+                    <span>Minimize</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Daily Sales */}
-            <div className="bg-zinc-50 border border-zinc-200/50 rounded-lg p-3.5 flex flex-col justify-between">
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-extrabold text-zinc-400 uppercase tracking-widest block">
-                  Daily Sales Total
-                </span>
-                <TrendingUp className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+          {/* Small screen inline stats representation when minimized */}
+          {statsMinimized && (
+            <div className="md:hidden grid grid-cols-2 gap-2 text-[10px] font-bold text-zinc-500 bg-zinc-50 rounded-lg p-2.5 border border-zinc-150 animate-in fade-in duration-200">
+              <div className="flex justify-between border-b border-zinc-200/50 pb-1">
+                <span>Daily Sales:</span>
+                <span className="text-zinc-800">£{todayNet.toFixed(2)}</span>
               </div>
-              <div className="mt-2">
-                <span className="text-lg font-bold text-zinc-900 block">
-                  £{todayNet.toFixed(2)}
-                </span>
-                <span className="text-[10px] font-semibold text-zinc-400 block mt-0.5">
-                  Gross today: £{todayGross.toFixed(2)}
-                </span>
+              <div className="flex justify-between border-b border-zinc-200/50 pb-1">
+                <span>Overall Sales:</span>
+                <span className="text-zinc-800">£{overallNet.toFixed(2)}</span>
               </div>
-            </div>
-
-            {/* Overall Sales */}
-            <div className="bg-zinc-50 border border-zinc-200/50 rounded-lg p-3.5 flex flex-col justify-between">
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-extrabold text-zinc-400 uppercase tracking-widest block">
-                  Overall Sales
-                </span>
-                <BarChart3 className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+              <div className="flex justify-between pt-0.5">
+                <span>Trade Credit:</span>
+                <span className="text-blue-600">£{tradeCreditToSpend.toFixed(2)}</span>
               </div>
-              <div className="mt-2">
-                <span className="text-lg font-bold text-zinc-900 block">
-                  £{overallNet.toFixed(2)}
-                </span>
-                <span className="text-[10px] font-semibold text-zinc-400 block mt-0.5">
-                  Gross overall: £{overallGross.toFixed(2)}
-                </span>
-              </div>
-            </div>
-
-            {/* Trade Credit */}
-            <div className="bg-zinc-50 border border-zinc-200/50 rounded-lg p-3.5 flex flex-col justify-between">
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-extrabold text-zinc-400 uppercase tracking-widest block">
-                  Trade Credit to Spend
-                </span>
-                <Coins className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-              </div>
-              <div className="mt-2">
-                <span className="text-lg font-extrabold text-blue-600 block">
-                  £{tradeCreditToSpend.toFixed(2)}
-                </span>
-                <span className="text-[10px] font-semibold text-zinc-400 block mt-0.5">
-                  Available for trade-ins
-                </span>
-              </div>
-            </div>
-
-            {/* Overall Balance */}
-            <div className="bg-zinc-50 border border-zinc-200/50 rounded-lg p-3.5 flex flex-col justify-between">
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-extrabold text-zinc-400 uppercase tracking-widest block">
-                  Overall Stall Balance
-                </span>
-                <Coins className={`w-3.5 h-3.5 shrink-0 ${overallBalance >= 0 ? 'text-emerald-500' : 'text-red-500'}`} />
-              </div>
-              <div className="mt-2">
-                <span className={`text-lg font-extrabold block ${overallBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              <div className="flex justify-between pt-0.5">
+                <span>Balance:</span>
+                <span className={overallBalance >= 0 ? "text-emerald-600" : "text-red-600"}>
                   {overallBalance < 0 ? '-' : ''}£{Math.abs(overallBalance).toFixed(2)}
                 </span>
-                <span className={`text-[10px] font-semibold block mt-0.5 ${overallBalance >= 0 ? 'text-emerald-600/75' : 'text-red-600/75'}`}>
-                  {overallBalance >= 0 ? 'Positive balance' : 'Negative balance / Overdrawn'}
-                </span>
               </div>
             </div>
-          </div>
+          )}
+
+          {!statsMinimized && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in slide-in-from-top-1 duration-250">
+              {/* Daily Sales */}
+              <div className="bg-zinc-50 border border-zinc-200/50 rounded-lg p-3.5 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] font-extrabold text-zinc-400 uppercase tracking-widest block">
+                    Daily Sales Total
+                  </span>
+                  <TrendingUp className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                </div>
+                <div className="mt-2">
+                  <span className="text-lg font-bold text-zinc-900 block">
+                    £{todayNet.toFixed(2)}
+                  </span>
+                  <span className="text-[10px] font-semibold text-zinc-400 block mt-0.5">
+                    Gross today: £{todayGross.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Overall Sales */}
+              <div className="bg-zinc-50 border border-zinc-200/50 rounded-lg p-3.5 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] font-extrabold text-zinc-400 uppercase tracking-widest block">
+                    Overall Sales
+                  </span>
+                  <BarChart3 className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                </div>
+                <div className="mt-2">
+                  <span className="text-lg font-bold text-zinc-900 block">
+                    £{overallNet.toFixed(2)}
+                  </span>
+                  <span className="text-[10px] font-semibold text-zinc-400 block mt-0.5">
+                    Gross overall: £{overallGross.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Trade Credit */}
+              <div className="bg-zinc-50 border border-zinc-200/50 rounded-lg p-3.5 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] font-extrabold text-zinc-400 uppercase tracking-widest block">
+                    Trade Credit to Spend
+                  </span>
+                  <Coins className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                </div>
+                <div className="mt-2">
+                  <span className="text-lg font-extrabold text-blue-600 block">
+                    £{tradeCreditToSpend.toFixed(2)}
+                  </span>
+                  <span className="text-[10px] font-semibold text-zinc-400 block mt-0.5">
+                    Available for trade-ins
+                  </span>
+                </div>
+              </div>
+
+              {/* Overall Balance */}
+              <div className="bg-zinc-50 border border-zinc-200/50 rounded-lg p-3.5 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[9px] font-extrabold text-zinc-400 uppercase tracking-widest block">
+                    Overall Stall Balance
+                  </span>
+                  <Coins className={`w-3.5 h-3.5 shrink-0 ${overallBalance >= 0 ? 'text-emerald-500' : 'text-red-500'}`} />
+                </div>
+                <div className="mt-2">
+                  <span className={`text-lg font-extrabold block ${overallBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {overallBalance < 0 ? '-' : ''}£{Math.abs(overallBalance).toFixed(2)}
+                  </span>
+                  <span className={`text-[10px] font-semibold block mt-0.5 ${overallBalance >= 0 ? 'text-emerald-600/75' : 'text-red-600/75'}`}>
+                    {overallBalance >= 0 ? 'Positive balance' : 'Negative balance / Overdrawn'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
