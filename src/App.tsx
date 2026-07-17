@@ -14,6 +14,9 @@ import {
   Menu,
   X
 } from 'lucide-react';
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getFirestore, collection, onSnapshot } from "firebase/firestore";
+import firebaseConfig from "../firebase-applet-config.json";
 import { Vendor, StockItem, Sale, TradeProposal, CashoutRequest, TradeIn } from './types';
 import PINLogin from './components/PINLogin';
 import DashboardHome from './components/DashboardHome';
@@ -21,6 +24,18 @@ import JointStaffPage from './components/JointStaffPage';
 import StockManager from './components/StockManager';
 import CashoutAndTradeIn from './components/CashoutAndTradeIn';
 import MasterControl from './components/MasterControl';
+
+// Initialize Firebase Client SDK for direct real-time updates on all platforms (including mobile phones)
+let db: any = null;
+if (firebaseConfig && firebaseConfig.projectId) {
+  try {
+    const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+    db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+    console.log("Firebase Client SDK successfully initialized in React frontend");
+  } catch (err) {
+    console.error("Failed to initialize Firebase Client SDK in React frontend:", err);
+  }
+}
 
 export default function App() {
   // Database States
@@ -81,9 +96,6 @@ export default function App() {
   };
 
   useEffect(() => {
-    // 1. Initial State Fetch
-    refreshAppState();
-    
     // Restore login session from localStorage if available
     const savedUser = localStorage.getItem('newtons_session_user');
     const savedRole = localStorage.getItem('newtons_session_role');
@@ -93,128 +105,95 @@ export default function App() {
       setActiveTab(savedRole === 'admin' ? 'admin' : 'home');
     }
 
-    // Detect mobile device
-    const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    let unsubscribeFirestore: (() => void) | null = null;
+    let fallbackInterval: NodeJS.Timeout | null = null;
 
-    let eventSource: EventSource | null = null;
-    let sseErrorCount = 0;
-    let activeSyncMode: 'realtime' | 'polling' | 'mobile' = isMobileDevice ? 'mobile' : 'realtime';
-    
-    setSyncMode(activeSyncMode);
-
-    // Helper to connect to real-time updates via Server-Sent Events (SSE)
-    const connectSSE = () => {
-      if (isMobileDevice) {
-        console.log("Mobile device detected. SSE disabled to ensure connection stability.");
-        return;
-      }
-
-      if (eventSource) {
-        eventSource.close();
-      }
-
+    if (db) {
       try {
-        console.log("Connecting to real-time updates via SSE...");
-        eventSource = new EventSource('/api/updates');
-
-        eventSource.onopen = () => {
-          console.log("SSE connection established successfully.");
-          sseErrorCount = 0;
-          setSyncMode('realtime');
-          activeSyncMode = 'realtime';
-        };
-
-        eventSource.onmessage = (event) => {
-          if (event.data === 'connected') return;
-          try {
-            const payload = JSON.parse(event.data);
-            if (payload.type === 'update') {
-              // Trigger silent refresh on real-time SSE broadcasts
-              refreshAppState(true);
+        console.log("Connecting directly to Firestore for stable real-time synchronization...");
+        const collectionRef = collection(db, "marketState");
+        
+        unsubscribeFirestore = onSnapshot(collectionRef, (snap) => {
+          let updatedKeys = new Set<string>();
+          snap.forEach((doc) => {
+            const key = doc.id;
+            const val = doc.data()?.data;
+            if (val && Array.isArray(val)) {
+              if (key === "vendors") setVendors(val);
+              else if (key === "stock") setStock(val);
+              else if (key === "sales") setSales(val);
+              else if (key === "trades") setTrades(val);
+              else if (key === "cashouts") setCashouts(val);
+              else if (key === "tradeIns") setTradeIns(val);
+              updatedKeys.add(key);
             }
-          } catch (err) {
-            console.error("Error parsing SSE real-time payload:", err);
-          }
-        };
-
-        eventSource.onerror = (err) => {
-          console.warn("Real-time SSE connection disconnected, error count:", sseErrorCount, err);
-          sseErrorCount++;
+          });
           
-          if (sseErrorCount >= 3) {
-            console.warn("SSE connection failed repeatedly. Switching to highly reliable fallback polling.");
-            if (eventSource) {
-              eventSource.close();
-              eventSource = null;
-            }
-            setSyncMode('polling');
-            activeSyncMode = 'polling';
-            startPolling(); // Restart polling with the faster rate
+          if (updatedKeys.size > 0) {
+            setLastSynced(new Date());
+            setSyncError(null);
+            setIsLoadingState(false);
+            setSyncMode('realtime');
           }
-        };
-      } catch (err) {
-        console.error("Failed to establish real-time SSE connection:", err);
+        }, (err) => {
+          console.error("Firestore onSnapshot error, falling back to REST polling:", err);
+          setSyncError("Live sync interrupted. Reconnecting...");
+          setSyncMode('polling');
+          // Fallback if listener fails
+          refreshAppState(true);
+        });
+      } catch (err: any) {
+        console.error("Error setting up real-time Firestore listener:", err);
+        setSyncError("Direct live sync unavailable. Polling fallback active.");
         setSyncMode('polling');
-        activeSyncMode = 'polling';
       }
-    };
-
-    // Only start the SSE connection once the document is visible and not on mobile
-    if (document.visibilityState === 'visible' && !isMobileDevice) {
-      connectSSE();
+    } else {
+      setSyncMode('polling');
     }
 
-    // Connect/disconnect based on tab visibility
+    // High reliability background synchronization (serves as fallback or bootstrap)
+    const runSyncFallback = () => {
+      // Fetch initial state once, then poll gently every 25 seconds just as a fail-safe
+      refreshAppState(true);
+    };
+
+    // Run initial fetch immediately
+    refreshAppState();
+
+    // Setup fail-safe background sync interval
+    fallbackInterval = setInterval(runSyncFallback, 25000);
+
+    // Support tab/app visibility changes
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        // Re-sync immediately (silently) on return to app
         refreshAppState(true);
-        if (activeSyncMode === 'realtime') {
-          connectSSE();
-        }
-      } else {
-        // Disconnect immediately when backgrounded to free up HTTP/1.1 ports (crucial for mobile Safari/Chrome concurrency)
-        if (eventSource) {
-          eventSource.close();
-          eventSource = null;
-        }
       }
     };
-
     document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    // Dynamic dual-sync: periodic fallback polling. Shorter interval for mobile or fallback mode.
-    let pollingInterval: NodeJS.Timeout | null = null;
-    
-    const startPolling = () => {
-      if (pollingInterval) clearInterval(pollingInterval);
-      
-      const intervalMs = (isMobileDevice || activeSyncMode === 'polling') ? 8000 : 20000;
-      console.log(`Starting background sync polling every ${intervalMs / 1000} seconds.`);
-      
-      pollingInterval = setInterval(() => {
-        refreshAppState(true);
-      }, intervalMs);
-    };
-
-    startPolling();
-
-    // Check periodically if sync mode fallback occurred and adjust polling if needed
-    const syncModeChecker = setInterval(() => {
-      if (activeSyncMode === 'polling' && pollingInterval) {
-        // Safe check
-      }
-    }, 15000);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (pollingInterval) clearInterval(pollingInterval);
-      clearInterval(syncModeChecker);
-      if (eventSource) {
-        eventSource.close();
+      if (unsubscribeFirestore) {
+        unsubscribeFirestore();
+      }
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
       }
     };
   }, []);
+
+  // Synchronize current logged-in vendor state if vendors array is modified from Firestore
+  useEffect(() => {
+    if (currentUser && userRole === 'vendor') {
+      const updatedMe = vendors.find((v) => v.id === currentUser.id);
+      if (updatedMe) {
+        if (JSON.stringify(updatedMe) !== JSON.stringify(currentUser)) {
+          setCurrentUser(updatedMe);
+          localStorage.setItem('newtons_session_user', JSON.stringify(updatedMe));
+        }
+      }
+    }
+  }, [vendors, currentUser, userRole]);
 
   // Update localStorage session on state changes
   const handleLoginSuccess = (user: any, role: 'vendor' | 'admin') => {
