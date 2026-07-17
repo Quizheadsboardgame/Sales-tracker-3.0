@@ -158,9 +158,9 @@ export default function JointStaffPage({
   const [statsMinimized, setStatsMinimized] = useState(() => {
     try {
       const saved = localStorage.getItem('joint_stall_stats_minimized');
-      return saved === 'true';
+      return saved !== null ? saved === 'true' : true;
     } catch {
-      return false;
+      return true;
     }
   });
 
