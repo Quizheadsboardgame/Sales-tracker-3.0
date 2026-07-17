@@ -569,8 +569,10 @@ app.post("/api/sales", (req, res) => {
   // 1. Process Sale Items
   for (let i = 0; i < itemsToProcess.length; i++) {
     const item = itemsToProcess[i];
+    const itemVendorId = item.vendorId || vendorId;
+    const itemVendor = state.vendors.find((v) => v.id === itemVendorId) || vendor;
     const salePrice = Number(item.price);
-    const commRate = vendor.commission;
+    const commRate = itemVendor.commission;
     const commAmount = Number((salePrice * commRate).toFixed(2));
     const earnings = Number((salePrice - commAmount).toFixed(2));
 
@@ -588,8 +590,8 @@ app.post("/api/sales", (req, res) => {
 
     const newSale: Sale = {
       id: "sale_" + Date.now() + "_" + Math.floor(Math.random() * 100000) + "_" + i,
-      vendorId,
-      vendorName: vendor.name,
+      vendorId: itemVendorId,
+      vendorName: itemVendor.name,
       itemName: item.itemName,
       stockItemId: item.stockItemId || null,
       price: salePrice,

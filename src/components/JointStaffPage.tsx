@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Search, Plus, Check, CheckCircle2, RefreshCw, Sparkles, UserCheck, Calendar, Trash2, Edit2, X } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Check, CheckCircle2, RefreshCw, Sparkles, UserCheck, Calendar, Trash2, Edit2, X, TrendingUp, Coins, BarChart3 } from 'lucide-react';
 import { StockItem, Vendor, Sale, CashoutRequest, TradeIn } from '../types';
 import { isSaleMature } from '../payoutUtils';
 
@@ -35,6 +35,7 @@ interface JointStaffPageProps {
     date: string;
   }) => Promise<void>;
   onDeleteSale?: (saleId: string) => Promise<void>;
+  currentUser?: any;
 }
 
 export default function JointStaffPage({ 
@@ -48,7 +49,8 @@ export default function JointStaffPage({
   adminViewingVendorId,
   onViewVendorProfile,
   onUpdateSale,
-  onDeleteSale
+  onDeleteSale,
+  currentUser
 }: JointStaffPageProps) {
   const getVendorColorEmoji = (color?: string): string => {
     if (!color) return '⚪';
@@ -142,6 +144,8 @@ export default function JointStaffPage({
     itemName: string;
     stockItemId: string | null;
     price: number;
+    vendorId: string;
+    vendorName: string;
   }>>([]);
 
   // Date/time controls defaulting to today's date and time (auto-sync)
@@ -176,7 +180,6 @@ export default function JointStaffPage({
     setSelectedStockId('');
     setManualItemName('');
     setManualPrice('');
-    setSaleItems([]); // Clear any multi-items when switching vendors
     setIncludeTradeIn(false);
     setTradeInDetails('');
     setTradeInAmount('');
@@ -215,11 +218,16 @@ export default function JointStaffPage({
       return;
     }
 
+    const vendorObj = vendors.find(v => v.id === selectedVendorId);
+    const vendorName = vendorObj ? vendorObj.name : "N/A";
+
     const newItem = {
       id: "item_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
       itemName: manualItemName.trim(),
       stockItemId: (selectedStockId && selectedStockId !== 'custom') ? selectedStockId : null,
-      price: Number(manualPrice)
+      price: Number(manualPrice),
+      vendorId: selectedVendorId,
+      vendorName: vendorName
     };
 
     setSaleItems([...saleItems, newItem]);
@@ -240,28 +248,37 @@ export default function JointStaffPage({
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    // Validations
-    if (!selectedVendorId) {
-      setErrorMessage("Please select a vendor.");
-      return;
-    }
-
     // Build the final array of items to process
     const itemsToSubmit = saleItems.map(item => ({
       itemName: item.itemName,
       stockItemId: item.stockItemId,
-      price: item.price
+      price: item.price,
+      vendorId: item.vendorId
     }));
 
     // If there is currently a valid item filled out in the input fields, automatically include it!
-    const currentInputValid = manualItemName.trim() && manualPrice && !isNaN(Number(manualPrice)) && Number(manualPrice) > 0;
+    const currentInputValid = selectedVendorId && manualItemName.trim() && manualPrice && !isNaN(Number(manualPrice)) && Number(manualPrice) > 0;
 
     if (currentInputValid) {
+      const vendorObj = vendors.find(v => v.id === selectedVendorId);
       itemsToSubmit.push({
         itemName: manualItemName.trim(),
         stockItemId: (selectedStockId && selectedStockId !== 'custom') ? selectedStockId : null,
-        price: Number(manualPrice)
+        price: Number(manualPrice),
+        vendorId: selectedVendorId
       });
+    }
+
+    // Validations
+    if (itemsToSubmit.length === 0 && !includeTradeIn) {
+      setErrorMessage("Please add at least one item to the sale or complete the input fields.");
+      return;
+    }
+
+    // If there's a trade-in, they must have a selected vendor for that trade-in
+    if (includeTradeIn && !selectedVendorId) {
+      setErrorMessage("Please select a vendor for the trade-in.");
+      return;
     }
 
     // Validate trade-in if included
@@ -282,23 +299,23 @@ export default function JointStaffPage({
       };
     }
 
-    // Must have either sale items or a trade-in
-    if (itemsToSubmit.length === 0 && !tradeInPayload) {
-      setErrorMessage("Please add at least one item to the sale, complete the fields, or include a trade-in.");
-      return;
-    }
-
     setIsSubmitting(true);
     try {
+      const primaryVendorId = selectedVendorId || itemsToSubmit[0]?.vendorId || "";
       await onLogSale({
-        vendorId: selectedVendorId,
+        vendorId: primaryVendorId,
         items: itemsToSubmit,
         date: new Date(customDate).toISOString(),
         tradeIn: tradeInPayload
       });
 
       // Show success
-      const vendorName = vendors.find(v => v.id === selectedVendorId)?.name || 'Vendor';
+      const currentVendorName = vendors.find(v => v.id === selectedVendorId)?.name || 'Vendor';
+      const itemVendorIds = Array.from(new Set(itemsToSubmit.map(it => it.vendorId).filter(Boolean)));
+      const vendorNamesStr = itemVendorIds.length > 1
+        ? `${itemVendorIds.length} vendors`
+        : (vendors.find(v => v.id === itemVendorIds[0])?.name || currentVendorName);
+
       const totalAmount = itemsToSubmit.reduce((sum, item) => sum + item.price, 0);
       const tradeInText = tradeInPayload 
         ? ` (Traded-in: "${tradeInPayload.details}" for £${tradeInPayload.amount.toFixed(2)} - deducted from account)`
@@ -307,11 +324,11 @@ export default function JointStaffPage({
       if (itemsToSubmit.length > 0) {
         setSuccessMessage(
           itemsToSubmit.length > 1
-            ? `Successfully logged sale of ${itemsToSubmit.length} items (Total: £${totalAmount.toFixed(2)})${tradeInText} for ${vendorName}!`
-            : `Successfully logged sale of "${itemsToSubmit[0].itemName}" (£${itemsToSubmit[0].price.toFixed(2)})${tradeInText} for ${vendorName}!`
+            ? `Successfully logged sale of ${itemsToSubmit.length} items (Total: £${totalAmount.toFixed(2)})${tradeInText} for ${vendorNamesStr}!`
+            : `Successfully logged sale of "${itemsToSubmit[0].itemName}" (£${itemsToSubmit[0].price.toFixed(2)})${tradeInText} for ${vendorNamesStr}!`
         );
       } else if (tradeInPayload) {
-        setSuccessMessage(`Successfully logged trade-in of "${tradeInPayload.details}" for £${tradeInPayload.amount.toFixed(2)} (deducted from ${vendorName}'s account)!`);
+        setSuccessMessage(`Successfully logged trade-in of "${tradeInPayload.details}" for £${tradeInPayload.amount.toFixed(2)} (deducted from ${currentVendorName}'s account)!`);
       }
       
       // Reset form and auto sync date to today's date & time
@@ -419,8 +436,148 @@ export default function JointStaffPage({
     }
   };
 
+  // Filter sales for the logged-in vendor
+  const loggedInVendor = userRole === 'vendor' && currentUser
+    ? vendors.find(v => v.id === currentUser.id)
+    : null;
+
+  // Compute statistics for the logged-in vendor to show at the top of the Joint Stall Register
+  let todayGross = 0;
+  let todayNet = 0;
+  let overallGross = 0;
+  let overallNet = 0;
+  let tradeCreditToSpend = 0;
+  let overallBalance = 0;
+
+  if (loggedInVendor) {
+    const today = new Date();
+    const vendorSales = sales.filter((s) => s.vendorId === loggedInVendor.id);
+    
+    // Today's Sales
+    const todaySales = vendorSales.filter((s) => {
+      const saleDate = new Date(s.date);
+      return (
+        saleDate.getFullYear() === today.getFullYear() &&
+        saleDate.getMonth() === today.getMonth() &&
+        saleDate.getDate() === today.getDate()
+      );
+    });
+
+    todayGross = todaySales.reduce((acc, curr) => acc + curr.price, 0);
+    todayNet = todaySales.reduce((acc, curr) => acc + curr.vendorEarnings, 0);
+
+    // Overall Sales
+    overallGross = vendorSales.reduce((acc, curr) => acc + curr.price, 0);
+    overallNet = vendorSales.reduce((acc, curr) => acc + curr.vendorEarnings, 0);
+
+    // Trade/Store credit to spend
+    tradeCreditToSpend = loggedInVendor.tradeCredit || 0;
+
+    // Overall Balance
+    overallBalance = calculateConsolidatedBalance(loggedInVendor.id);
+  }
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Logged in vendor own stats banner (full width) */}
+      {loggedInVendor && (
+        <div className="col-span-1 lg:col-span-12 bg-white border border-zinc-200 rounded-xl p-5 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-4 border-b border-zinc-100">
+            <div className="flex items-center gap-2.5">
+              <div 
+                className="w-3 h-3 rounded-full shrink-0 shadow-xs animate-pulse" 
+                style={{ backgroundColor: loggedInVendor.color || '#3B82F6' }} 
+              />
+              <div>
+                <h4 className="text-xs font-extrabold text-zinc-900 uppercase tracking-wider">
+                  Your Stall Stats: {loggedInVendor.name}
+                </h4>
+                <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mt-0.5">
+                  Real-time register summary for your stall
+                </p>
+              </div>
+            </div>
+            <div className="inline-flex text-[10px] bg-zinc-100 font-bold text-zinc-600 px-2.5 py-1 rounded">
+              Commission Rate: {(loggedInVendor.commission * 100).toFixed(0)}%
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Daily Sales */}
+            <div className="bg-zinc-50 border border-zinc-200/50 rounded-lg p-3.5 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] font-extrabold text-zinc-400 uppercase tracking-widest block">
+                  Daily Sales Total
+                </span>
+                <TrendingUp className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+              </div>
+              <div className="mt-2">
+                <span className="text-lg font-bold text-zinc-900 block">
+                  £{todayNet.toFixed(2)}
+                </span>
+                <span className="text-[10px] font-semibold text-zinc-400 block mt-0.5">
+                  Gross today: £{todayGross.toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            {/* Overall Sales */}
+            <div className="bg-zinc-50 border border-zinc-200/50 rounded-lg p-3.5 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] font-extrabold text-zinc-400 uppercase tracking-widest block">
+                  Overall Sales
+                </span>
+                <BarChart3 className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+              </div>
+              <div className="mt-2">
+                <span className="text-lg font-bold text-zinc-900 block">
+                  £{overallNet.toFixed(2)}
+                </span>
+                <span className="text-[10px] font-semibold text-zinc-400 block mt-0.5">
+                  Gross overall: £{overallGross.toFixed(2)}
+                </span>
+              </div>
+            </div>
+
+            {/* Trade Credit */}
+            <div className="bg-zinc-50 border border-zinc-200/50 rounded-lg p-3.5 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] font-extrabold text-zinc-400 uppercase tracking-widest block">
+                  Trade Credit to Spend
+                </span>
+                <Coins className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+              </div>
+              <div className="mt-2">
+                <span className="text-lg font-extrabold text-blue-600 block">
+                  £{tradeCreditToSpend.toFixed(2)}
+                </span>
+                <span className="text-[10px] font-semibold text-zinc-400 block mt-0.5">
+                  Available for trade-ins
+                </span>
+              </div>
+            </div>
+
+            {/* Overall Balance */}
+            <div className="bg-zinc-50 border border-zinc-200/50 rounded-lg p-3.5 flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] font-extrabold text-zinc-400 uppercase tracking-widest block">
+                  Overall Stall Balance
+                </span>
+                <Coins className={`w-3.5 h-3.5 shrink-0 ${overallBalance >= 0 ? 'text-emerald-500' : 'text-red-500'}`} />
+              </div>
+              <div className="mt-2">
+                <span className={`text-lg font-extrabold block ${overallBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  {overallBalance < 0 ? '-' : ''}£{Math.abs(overallBalance).toFixed(2)}
+                </span>
+                <span className={`text-[10px] font-semibold block mt-0.5 ${overallBalance >= 0 ? 'text-emerald-600/75' : 'text-red-600/75'}`}>
+                  {overallBalance >= 0 ? 'Positive balance' : 'Negative balance / Overdrawn'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sales Logging Box (7 Cols on Desktop) */}
       <div className="lg:col-span-7 bg-white rounded-xl border border-zinc-200 shadow-xs p-6">
         <div className="flex items-center gap-2 mb-6">
@@ -647,11 +804,16 @@ export default function JointStaffPage({
                       <span className="font-bold text-zinc-800 block truncate max-w-[280px]">
                         {item.itemName}
                       </span>
-                      {item.stockItemId && (
-                        <span className="text-[9px] text-blue-600 font-bold uppercase tracking-wider block">
-                          Catalog Stock Item
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {item.stockItemId && (
+                          <span className="text-[9px] text-blue-600 font-bold uppercase tracking-wider block">
+                            Catalog Stock Item
+                          </span>
+                        )}
+                        <span className="text-[9px] bg-zinc-100 text-zinc-600 px-1.5 py-0.5 rounded-sm font-semibold">
+                          Stall: {item.vendorName}
                         </span>
-                      )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="font-extrabold text-zinc-900">£{item.price.toFixed(2)}</span>
@@ -807,7 +969,7 @@ export default function JointStaffPage({
             <button
               id="btn-submit-sale"
               type="submit"
-              disabled={isSubmitting || !selectedVendorId || (totalItemsCount === 0 && (!includeTradeIn || !tradeInAmount || isNaN(Number(tradeInAmount)) || Number(tradeInAmount) <= 0)) || (willBeNegative && !owenApproved)}
+              disabled={isSubmitting || (totalItemsCount === 0 && !selectedVendorId) || (totalItemsCount === 0 && (!includeTradeIn || !tradeInAmount || isNaN(Number(tradeInAmount)) || Number(tradeInAmount) <= 0)) || (willBeNegative && !owenApproved)}
               className="py-3 bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-950 text-white rounded-lg text-xs font-bold tracking-wide shadow-xs transition-colors flex items-center justify-center gap-2 focus:outline-none disabled:opacity-50 cursor-pointer min-w-0"
             >
               {isSubmitting ? (

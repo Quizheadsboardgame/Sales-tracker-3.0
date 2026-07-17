@@ -302,6 +302,7 @@ export default function App() {
       itemName: string;
       stockItemId: string | null;
       price: number;
+      vendorId?: string;
     }>;
     tradeIn?: {
       details: string;
@@ -312,7 +313,7 @@ export default function App() {
       try {
         const updatedVendors = [...vendors];
         const targetVendor = updatedVendors.find(v => v.id === saleData.vendorId);
-        if (targetVendor) {
+        if (targetVendor || saleData.items?.length) {
           const updatedSales = [...sales];
           const updatedStock = [...stock];
           const updatedTradeIns = [...tradeIns];
@@ -322,14 +323,19 @@ export default function App() {
             itemsToProcess.push({
               itemName: saleData.itemName || '',
               stockItemId: saleData.stockItemId || null,
-              price: saleData.price || 0
+              price: saleData.price || 0,
+              vendorId: saleData.vendorId
             });
           }
 
           for (let i = 0; i < itemsToProcess.length; i++) {
             const item = itemsToProcess[i];
+            const itemVendorId = item.vendorId || saleData.vendorId;
+            const itemVendor = updatedVendors.find(v => v.id === itemVendorId) || targetVendor;
+            if (!itemVendor) continue;
+
             const salePrice = Number(item.price);
-            const commRate = targetVendor.commission;
+            const commRate = itemVendor.commission;
             const commAmount = Number((salePrice * commRate).toFixed(2));
             const earnings = Number((salePrice - commAmount).toFixed(2));
 
@@ -346,8 +352,8 @@ export default function App() {
 
             const newSale: Sale = {
               id: "sale_" + Date.now() + "_" + Math.floor(Math.random() * 100000) + "_" + i,
-              vendorId: saleData.vendorId,
-              vendorName: targetVendor.name,
+              vendorId: itemVendorId,
+              vendorName: itemVendor.name,
               itemName: item.itemName,
               stockItemId: item.stockItemId || null,
               price: salePrice,
@@ -1451,6 +1457,7 @@ export default function App() {
             }}
             onUpdateSale={handleUpdateSale}
             onDeleteSale={handleDeleteSale}
+            currentUser={currentUser}
           />
         )}
 
