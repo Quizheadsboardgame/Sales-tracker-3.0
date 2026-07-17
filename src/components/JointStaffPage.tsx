@@ -591,18 +591,7 @@ export default function JointStaffPage({
               </div>
             </div>
 
-            {/* Add Item Trigger */}
-            <div className="col-span-2">
-              <button
-                id="btn-add-item-to-basket"
-                type="button"
-                disabled={!selectedVendorId || !manualItemName.trim() || !manualPrice || isNaN(Number(manualPrice)) || Number(manualPrice) <= 0}
-                onClick={handleAddItem}
-                className="w-full py-2.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-800 disabled:opacity-40 disabled:hover:bg-zinc-100 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer border border-zinc-200/50"
-              >
-                <Plus className="w-4 h-4" /> ＋ Add Item to Current Sale Basket
-              </button>
-            </div>
+
 
             {/* Custom Date Field with Auto-Sync */}
             <div className="col-span-2 pt-2">
@@ -804,31 +793,45 @@ export default function JointStaffPage({
             )}
           </div>
 
-          <button
-            id="btn-submit-sale"
-            type="submit"
-            disabled={isSubmitting || !selectedVendorId || (totalItemsCount === 0 && (!includeTradeIn || !tradeInAmount || isNaN(Number(tradeInAmount)) || Number(tradeInAmount) <= 0)) || (willBeNegative && !owenApproved)}
-            className="w-full py-3 bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-950 text-white rounded-lg text-xs font-bold tracking-wide shadow-xs transition-colors flex items-center justify-center gap-2 focus:outline-none disabled:opacity-50 cursor-pointer"
-          >
-            {isSubmitting ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" /> Recording Register...
-              </>
-            ) : (
-              <>
-                <Check className="w-4 h-4" />
-                {totalItemsCount > 0 && tradeInAmountNum > 0 ? (
-                  `Record Sale & Trade-In (Net: £${netPriceVal.toFixed(2)} • Traded-In: -£${tradeInAmountNum.toFixed(2)})`
-                ) : tradeInAmountNum > 0 ? (
-                  `Record Trade-In Deduction (-£${tradeInAmountNum.toFixed(2)})`
-                ) : totalItemsCount > 1 ? (
-                  `Record Joint Sale (${totalItemsCount} Items • Total: £${totalPriceVal.toFixed(2)})`
-                ) : (
-                  `Record Sale (1 Item • Total: £${totalPriceVal.toFixed(2)})`
-                )}
-              </>
-            )}
-          </button>
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <button
+              id="btn-add-item-to-basket"
+              type="button"
+              disabled={!selectedVendorId || !manualItemName.trim() || !manualPrice || isNaN(Number(manualPrice)) || Number(manualPrice) <= 0}
+              onClick={handleAddItem}
+              className="py-3 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white disabled:opacity-40 disabled:hover:bg-blue-600 text-xs font-bold rounded-lg shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer focus:outline-none"
+            >
+              <Plus className="w-4 h-4 shrink-0" /> <span className="truncate">Add to basket</span>
+            </button>
+
+            <button
+              id="btn-submit-sale"
+              type="submit"
+              disabled={isSubmitting || !selectedVendorId || (totalItemsCount === 0 && (!includeTradeIn || !tradeInAmount || isNaN(Number(tradeInAmount)) || Number(tradeInAmount) <= 0)) || (willBeNegative && !owenApproved)}
+              className="py-3 bg-zinc-900 hover:bg-zinc-800 active:bg-zinc-950 text-white rounded-lg text-xs font-bold tracking-wide shadow-xs transition-colors flex items-center justify-center gap-2 focus:outline-none disabled:opacity-50 cursor-pointer min-w-0"
+            >
+              {isSubmitting ? (
+                <span className="flex items-center gap-1">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" /> <span className="truncate">Recording...</span>
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 min-w-0 truncate">
+                  <Check className="w-4 h-4 shrink-0" />
+                  <span className="truncate">
+                    {totalItemsCount > 0 && tradeInAmountNum > 0 ? (
+                      `Record Sale & Trade-In`
+                    ) : tradeInAmountNum > 0 ? (
+                      `Record Trade-In`
+                    ) : totalItemsCount > 1 ? (
+                      `Record Joint Sale (${totalItemsCount})`
+                    ) : (
+                      `Record Sale`
+                    )}
+                  </span>
+                </span>
+              )}
+            </button>
+          </div>
         </form>
       </div>
 
