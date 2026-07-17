@@ -15,9 +15,10 @@ import {
   X
 } from 'lucide-react';
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, collection, onSnapshot } from "firebase/firestore";
+import { getFirestore, collection, onSnapshot, doc, setDoc } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
 import { Vendor, StockItem, Sale, TradeProposal, CashoutRequest, TradeIn } from './types';
+import { isSaleMature } from './payoutUtils';
 import PINLogin from './components/PINLogin';
 import DashboardHome from './components/DashboardHome';
 import JointStaffPage from './components/JointStaffPage';
@@ -72,21 +73,32 @@ export default function App() {
     try {
       const res = await fetch('/api/state');
       if (res.ok) {
-        const data = await res.json();
-        setVendors(data.vendors || []);
-        setStock(data.stock || []);
-        setSales(data.sales || []);
-        setTrades(data.trades || []);
-        setCashouts(data.cashouts || []);
-        setTradeIns(data.tradeIns || []);
-        setLastSynced(new Date());
-        setSyncError(null); // Clear errors on successful connection
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          setVendors(data.vendors || []);
+          setStock(data.stock || []);
+          setSales(data.sales || []);
+          setTrades(data.trades || []);
+          setCashouts(data.cashouts || []);
+          setTradeIns(data.tradeIns || []);
+          setLastSynced(new Date());
+          setSyncError(null); // Clear errors on successful connection
+        } else {
+          if (!db) {
+            setSyncError("Network Sync response was invalid");
+          }
+        }
       } else {
-        setSyncError("Failed to fetch state from network");
+        if (!db) {
+          setSyncError(`Failed to fetch state: Server Error ${res.status}`);
+        }
       }
     } catch (err: any) {
       console.error("Error synchronizing with state database", err);
-      setSyncError(err.message || "Network Sync failed");
+      if (!db) {
+        setSyncError(err.message || "Network Sync failed");
+      }
     } finally {
       if (!silent) {
         setIsSyncing(false);
@@ -219,6 +231,30 @@ export default function App() {
   const handleLoginSubmit = async (pin: string) => {
     setAuthLoading(true);
     setPinError(null);
+
+    // If Firestore direct sync is active, validate local/cached state to ensure zero-downtime offline login
+    if (db && vendors.length > 0) {
+      try {
+        if (pin === "9999") {
+          handleLoginSuccess({ id: "master", name: "Newton (Master Control)" }, 'admin');
+          setAuthLoading(false);
+          return;
+        }
+        const foundVendor = vendors.find(v => v.pin === pin);
+        if (foundVendor) {
+          handleLoginSuccess(foundVendor, 'vendor');
+          setAuthLoading(false);
+          return;
+        } else {
+          setPinError("Invalid PIN. Please try again.");
+          setAuthLoading(false);
+          return;
+        }
+      } catch (err) {
+        console.warn("Direct Firestore auth validation failed, falling back to network REST API:", err);
+      }
+    }
+
     try {
       const res = await fetch('/api/login', {
         method: 'POST',
@@ -226,18 +262,27 @@ export default function App() {
         body: JSON.stringify({ pin })
       });
 
-      const data = await res.json();
-      if (res.ok) {
-        // Sync our react vendor state in case admin updated commissions
+      let errMsg = "Login authorization failed.";
+      let data: any = null;
+
+      try {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          data = await res.json();
+        }
+      } catch (e) {
+        console.warn("Failed to parse JSON for login response", e);
+      }
+
+      if (res.ok && data) {
         await refreshAppState();
-        
         if (data.role === 'admin') {
           handleLoginSuccess(data.user, 'admin');
         } else {
           handleLoginSuccess(data.user, 'vendor');
         }
       } else {
-        setPinError(data.error || "Login authorization failed.");
+        setPinError(data?.error || `Server Error (${res.status}): ${res.statusText || errMsg}`);
       }
     } catch (err) {
       setPinError("Could not connect to secure authentication server.");
@@ -263,6 +308,89 @@ export default function App() {
       amount: number;
     };
   }) => {
+    if (db) {
+      try {
+        const updatedVendors = [...vendors];
+        const targetVendor = updatedVendors.find(v => v.id === saleData.vendorId);
+        if (targetVendor) {
+          const updatedSales = [...sales];
+          const updatedStock = [...stock];
+          const updatedTradeIns = [...tradeIns];
+
+          const itemsToProcess = saleData.items || [];
+          if (itemsToProcess.length === 0 && (saleData.itemName || saleData.price !== undefined)) {
+            itemsToProcess.push({
+              itemName: saleData.itemName || '',
+              stockItemId: saleData.stockItemId || null,
+              price: saleData.price || 0
+            });
+          }
+
+          for (let i = 0; i < itemsToProcess.length; i++) {
+            const item = itemsToProcess[i];
+            const salePrice = Number(item.price);
+            const commRate = targetVendor.commission;
+            const commAmount = Number((salePrice * commRate).toFixed(2));
+            const earnings = Number((salePrice - commAmount).toFixed(2));
+
+            if (item.stockItemId) {
+              const stockItemIndex = updatedStock.findIndex(s => s.id === item.stockItemId);
+              if (stockItemIndex !== -1) {
+                const currentQty = updatedStock[stockItemIndex].quantity;
+                updatedStock[stockItemIndex] = {
+                  ...updatedStock[stockItemIndex],
+                  quantity: currentQty > 1 ? currentQty - 1 : 0
+                };
+              }
+            }
+
+            const newSale: Sale = {
+              id: "sale_" + Date.now() + "_" + Math.floor(Math.random() * 100000) + "_" + i,
+              vendorId: saleData.vendorId,
+              vendorName: targetVendor.name,
+              itemName: item.itemName,
+              stockItemId: item.stockItemId || null,
+              price: salePrice,
+              commissionAmount: commAmount,
+              vendorEarnings: earnings,
+              date: saleData.date || new Date().toISOString(),
+              cashedOut: false,
+              cashoutRequestId: null,
+            };
+            updatedSales.push(newSale);
+          }
+
+          if (saleData.tradeIn) {
+            const tradeInAmount = Number(saleData.tradeIn.amount);
+            if (!isNaN(tradeInAmount) && tradeInAmount > 0) {
+              targetVendor.tradeCredit = Number((targetVendor.tradeCredit - tradeInAmount).toFixed(2));
+              const newTradeIn: TradeIn = {
+                id: "tradein_" + Date.now() + "_" + Math.floor(Math.random() * 10000),
+                vendorId: saleData.vendorId,
+                vendorName: targetVendor.name,
+                details: "[Register Trade-In] " + saleData.tradeIn.details,
+                estimatedValue: tradeInAmount,
+                creditApplied: -tradeInAmount,
+                status: "approved",
+                date: saleData.date || new Date().toISOString()
+              };
+              updatedTradeIns.push(newTradeIn);
+            }
+          }
+
+          await setDoc(doc(db, "marketState", "sales"), { data: updatedSales });
+          await setDoc(doc(db, "marketState", "stock"), { data: updatedStock });
+          if (saleData.tradeIn) {
+            await setDoc(doc(db, "marketState", "tradeIns"), { data: updatedTradeIns });
+            await setDoc(doc(db, "marketState", "vendors"), { data: updatedVendors });
+          }
+          return;
+        }
+      } catch (err) {
+        console.warn("Direct Firestore write failed for log sale, falling back to REST:", err);
+      }
+    }
+
     const res = await fetch('/api/sales', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -270,8 +398,19 @@ export default function App() {
     });
 
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to log register sale.");
+      let errMsg = "Failed to log register sale.";
+      try {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          errMsg = data.error || errMsg;
+        } else {
+          errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected Response format'}`;
+        }
+      } catch (e) {
+        errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected error'}`;
+      }
+      throw new Error(errMsg);
     }
 
     await refreshAppState();
@@ -288,6 +427,50 @@ export default function App() {
     setName: string;
     imageUrl?: string;
   }) => {
+    if (db) {
+      try {
+        const updatedStock = [...stock];
+        const vendor = vendors.find(v => v.id === stockData.vendorId);
+        const vendorName = vendor ? vendor.name : "N/A";
+
+        if (stockData.id) {
+          const index = updatedStock.findIndex(s => s.id === stockData.id);
+          if (index !== -1) {
+            updatedStock[index] = {
+              ...updatedStock[index],
+              id: stockData.id,
+              name: stockData.name,
+              price: Number(stockData.price),
+              vendorId: stockData.vendorId,
+              vendorName: vendorName,
+              quantity: Number(stockData.quantity) || 1,
+              rarity: stockData.rarity || "Common",
+              setName: stockData.setName || "N/A",
+              imageUrl: stockData.imageUrl || ""
+            };
+          }
+        } else {
+          const newStock: StockItem = {
+            id: "stock_" + Date.now() + "_" + Math.floor(Math.random() * 10000),
+            name: stockData.name,
+            price: Number(stockData.price),
+            vendorId: stockData.vendorId,
+            vendorName: vendorName,
+            quantity: Number(stockData.quantity) || 1,
+            rarity: stockData.rarity || "Common",
+            setName: stockData.setName || "N/A",
+            imageUrl: stockData.imageUrl || "",
+            dateAdded: new Date().toISOString()
+          };
+          updatedStock.push(newStock);
+        }
+        await setDoc(doc(db, "marketState", "stock"), { data: updatedStock });
+        return;
+      } catch (err) {
+        console.warn("Direct Firestore write failed for stock, falling back to REST:", err);
+      }
+    }
+
     const res = await fetch('/api/stock', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -295,8 +478,19 @@ export default function App() {
     });
 
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to update stock catalog.");
+      let errMsg = "Failed to update stock catalog.";
+      try {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          errMsg = data.error || errMsg;
+        } else {
+          errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected Response format'}`;
+        }
+      } catch (e) {
+        errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected error'}`;
+      }
+      throw new Error(errMsg);
     }
 
     await refreshAppState();
@@ -312,6 +506,35 @@ export default function App() {
     imageUrl?: string;
     notes?: string;
   }) => {
+    if (db) {
+      try {
+        const proposer = vendors.find(v => v.id === tradeData.proposerId);
+        const receiver = vendors.find(v => v.id === tradeData.receiverId);
+        if (proposer && receiver) {
+          const updatedTrades = [...trades];
+          const newTrade: TradeProposal = {
+            id: "trade_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+            proposerId: tradeData.proposerId,
+            proposerName: proposer.name,
+            receiverId: tradeData.receiverId,
+            receiverName: receiver.name,
+            offeredItemNames: tradeData.offeredItemNames,
+            requestedItemNames: tradeData.requestedItemNames,
+            offeredCash: Number(tradeData.offeredCash) || 0,
+            status: "pending",
+            imageUrl: tradeData.imageUrl || "",
+            notes: tradeData.notes || "",
+            date: new Date().toISOString()
+          };
+          updatedTrades.push(newTrade);
+          await setDoc(doc(db, "marketState", "trades"), { data: updatedTrades });
+          return;
+        }
+      } catch (err) {
+        console.warn("Direct Firestore write failed for trade, falling back to REST:", err);
+      }
+    }
+
     const res = await fetch('/api/trades', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -319,8 +542,19 @@ export default function App() {
     });
 
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to transmit swap proposal.");
+      let errMsg = "Failed to transmit swap proposal.";
+      try {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          errMsg = data.error || errMsg;
+        } else {
+          errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected Response format'}`;
+        }
+      } catch (e) {
+        errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected error'}`;
+      }
+      throw new Error(errMsg);
     }
 
     await refreshAppState();
@@ -337,6 +571,77 @@ export default function App() {
       counterOfferedCash?: number;
     }
   ) => {
+    if (db) {
+      try {
+        const updatedTrades = [...trades];
+        const updatedVendors = [...vendors];
+        const tradeIndex = updatedTrades.findIndex(t => t.id === tradeId);
+
+        if (tradeIndex !== -1) {
+          const trade = { ...updatedTrades[tradeIndex] };
+          
+          if (status === "accepted") {
+            trade.status = "accepted";
+            if (responseDetails?.notes) trade.notes = responseDetails.notes;
+
+            if (trade.offeredCash > 0) {
+              const pIndex = updatedVendors.findIndex(v => v.id === trade.proposerId);
+              const rIndex = updatedVendors.findIndex(v => v.id === trade.receiverId);
+              if (pIndex !== -1 && rIndex !== -1) {
+                updatedVendors[pIndex] = {
+                  ...updatedVendors[pIndex],
+                  tradeCredit: Number((updatedVendors[pIndex].tradeCredit - trade.offeredCash).toFixed(2))
+                };
+                updatedVendors[rIndex] = {
+                  ...updatedVendors[rIndex],
+                  tradeCredit: Number((updatedVendors[rIndex].tradeCredit + trade.offeredCash).toFixed(2))
+                };
+              }
+            }
+            updatedTrades[tradeIndex] = trade;
+          } else if (status === "declined") {
+            trade.status = "declined";
+            if (responseDetails?.notes) trade.notes = responseDetails.notes;
+            updatedTrades[tradeIndex] = trade;
+          } else if (status === "countered") {
+            trade.status = "countered";
+            updatedTrades[tradeIndex] = trade;
+
+            const newCounterTrade: TradeProposal = {
+              id: "trade_" + Date.now() + "_counter",
+              proposerId: trade.receiverId,
+              proposerName: trade.receiverName,
+              receiverId: trade.proposerId,
+              receiverName: trade.proposerName,
+              offeredItemNames: responseDetails?.counterOfferedItemNames || trade.requestedItemNames,
+              requestedItemNames: responseDetails?.counterRequestedItemNames || trade.offeredItemNames,
+              offeredCash: Number(responseDetails?.counterOfferedCash) || 0,
+              imageUrl: trade.imageUrl,
+              status: "pending",
+              date: new Date().toISOString(),
+              notes: responseDetails?.notes || `Counter offer for previous trade: ${trade.id}`
+            };
+            updatedTrades.push(newCounterTrade);
+          }
+
+          await setDoc(doc(db, "marketState", "trades"), { data: updatedTrades });
+          if (status === "accepted") {
+            await setDoc(doc(db, "marketState", "vendors"), { data: updatedVendors });
+            if (currentUser && userRole === 'vendor') {
+              const updatedMe = updatedVendors.find(v => v.id === currentUser.id);
+              if (updatedMe) {
+                setCurrentUser(updatedMe);
+                localStorage.setItem('newtons_session_user', JSON.stringify(updatedMe));
+              }
+            }
+          }
+          return;
+        }
+      } catch (err) {
+        console.warn("Direct Firestore write failed for trade respond, falling back to REST:", err);
+      }
+    }
+
     const res = await fetch(`/api/trades/${tradeId}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -344,8 +649,19 @@ export default function App() {
     });
 
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to transmit trade response.");
+      let errMsg = "Failed to transmit trade response.";
+      try {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          errMsg = data.error || errMsg;
+        } else {
+          errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected Response format'}`;
+        }
+      } catch (e) {
+        errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected error'}`;
+      }
+      throw new Error(errMsg);
     }
 
     await refreshAppState();
@@ -366,6 +682,48 @@ export default function App() {
 
   // Request cashout
   const handleRequestCashout = async (vendorId: string, amount: number) => {
+    if (db) {
+      try {
+        const vendor = vendors.find(v => v.id === vendorId);
+        if (vendor) {
+          const updatedCashouts = [...cashouts];
+          const updatedSales = [...sales];
+          const reqId = "req_" + Date.now();
+
+          const newRequest: CashoutRequest = {
+            id: reqId,
+            vendorId,
+            vendorName: vendor.name,
+            amount: Number(amount),
+            date: new Date().toISOString(),
+            status: "pending"
+          };
+
+          updatedSales.forEach((sale, index) => {
+            if (
+              sale.vendorId === vendorId &&
+              !sale.cashedOut &&
+              !sale.cashoutRequestId &&
+              isSaleMature(sale.date, new Date())
+            ) {
+              updatedSales[index] = {
+                ...sale,
+                cashoutRequestId: reqId
+              };
+            }
+          });
+
+          updatedCashouts.push(newRequest);
+
+          await setDoc(doc(db, "marketState", "cashouts"), { data: updatedCashouts });
+          await setDoc(doc(db, "marketState", "sales"), { data: updatedSales });
+          return;
+        }
+      } catch (err) {
+        console.warn("Direct Firestore write failed for cashout, falling back to REST:", err);
+      }
+    }
+
     const res = await fetch('/api/cashouts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -373,8 +731,19 @@ export default function App() {
     });
 
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to submit cash out hold release.");
+      let errMsg = "Failed to submit cash out hold release.";
+      try {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          errMsg = data.error || errMsg;
+        } else {
+          errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected Response format'}`;
+        }
+      } catch (e) {
+        errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected error'}`;
+      }
+      throw new Error(errMsg);
     }
 
     await refreshAppState();
@@ -387,6 +756,30 @@ export default function App() {
     estimatedValue: number;
     creditApplied: number;
   }) => {
+    if (db) {
+      try {
+        const vendor = vendors.find(v => v.id === tradeInData.vendorId);
+        if (vendor) {
+          const updatedTradeIns = [...tradeIns];
+          const newTradeIn: TradeIn = {
+            id: "tradein_" + Date.now(),
+            vendorId: tradeInData.vendorId,
+            vendorName: vendor.name,
+            details: tradeInData.details,
+            estimatedValue: Number(tradeInData.estimatedValue),
+            creditApplied: Number(tradeInData.creditApplied) || Number(tradeInData.estimatedValue),
+            status: "pending",
+            date: new Date().toISOString()
+          };
+          updatedTradeIns.push(newTradeIn);
+          await setDoc(doc(db, "marketState", "tradeIns"), { data: updatedTradeIns });
+          return;
+        }
+      } catch (err) {
+        console.warn("Direct Firestore write failed for trade-in, falling back to REST:", err);
+      }
+    }
+
     const res = await fetch('/api/trade-ins', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -394,8 +787,19 @@ export default function App() {
     });
 
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to transmit trade-in details.");
+      let errMsg = "Failed to transmit trade-in details.";
+      try {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          errMsg = data.error || errMsg;
+        } else {
+          errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected Response format'}`;
+        }
+      } catch (e) {
+        errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected error'}`;
+      }
+      throw new Error(errMsg);
     }
 
     await refreshAppState();
@@ -409,6 +813,42 @@ export default function App() {
     commission: number;
     color?: string;
   }) => {
+    if (db) {
+      try {
+        const updatedVendors = [...vendors];
+        const targetId = vendorData.id && vendorData.id.trim() !== "" ? vendorData.id : null;
+
+        if (targetId) {
+          const index = updatedVendors.findIndex(v => v.id === targetId);
+          if (index !== -1) {
+            updatedVendors[index] = {
+              ...updatedVendors[index],
+              name: vendorData.name,
+              pin: vendorData.pin,
+              commission: Number(vendorData.commission),
+              color: vendorData.color || updatedVendors[index].color
+            };
+          }
+        } else {
+          const newVendorId = "v_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+          const newVendor: Vendor = {
+            id: newVendorId,
+            name: vendorData.name,
+            pin: vendorData.pin,
+            commission: Number(vendorData.commission) || 0.10,
+            tradeCredit: 0.0,
+            color: vendorData.color || "#64748B"
+          };
+          updatedVendors.push(newVendor);
+        }
+
+        await setDoc(doc(db, "marketState", "vendors"), { data: updatedVendors });
+        return;
+      } catch (err) {
+        console.warn("Direct Firestore write failed for vendor update, falling back to REST:", err);
+      }
+    }
+
     const res = await fetch('/api/admin/vendors', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -416,8 +856,19 @@ export default function App() {
     });
 
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to update vendor structures.");
+      let errMsg = "Failed to update vendor structures.";
+      try {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          errMsg = data.error || errMsg;
+        } else {
+          errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected Response format'}`;
+        }
+      } catch (e) {
+        errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected error'}`;
+      }
+      throw new Error(errMsg);
     }
 
     await refreshAppState();
@@ -430,6 +881,37 @@ export default function App() {
     price: number;
     date: string;
   }) => {
+    if (db) {
+      try {
+        const updatedSales = [...sales];
+        const saleIndex = updatedSales.findIndex(s => s.id === saleId);
+        const vendor = vendors.find(v => v.id === saleData.vendorId);
+
+        if (saleIndex !== -1 && vendor) {
+          const salePrice = Number(saleData.price);
+          const commRate = vendor.commission;
+          const commAmount = Number((salePrice * commRate).toFixed(2));
+          const earnings = Number((salePrice - commAmount).toFixed(2));
+
+          updatedSales[saleIndex] = {
+            ...updatedSales[saleIndex],
+            vendorId: saleData.vendorId,
+            vendorName: vendor.name,
+            itemName: saleData.itemName,
+            price: salePrice,
+            commissionAmount: commAmount,
+            vendorEarnings: earnings,
+            date: saleData.date || updatedSales[saleIndex].date
+          };
+
+          await setDoc(doc(db, "marketState", "sales"), { data: updatedSales });
+          return;
+        }
+      } catch (err) {
+        console.warn("Direct Firestore write failed for sale update, falling back to REST:", err);
+      }
+    }
+
     const res = await fetch(`/api/admin/sales/${saleId}/update`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -437,8 +919,19 @@ export default function App() {
     });
 
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to update sale.");
+      let errMsg = "Failed to update sale.";
+      try {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          errMsg = data.error || errMsg;
+        } else {
+          errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected Response format'}`;
+        }
+      } catch (e) {
+        errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected error'}`;
+      }
+      throw new Error(errMsg);
     }
 
     await refreshAppState();
@@ -446,13 +939,55 @@ export default function App() {
 
   // Admin: Delete sale
   const handleDeleteSale = async (saleId: string) => {
+    if (db) {
+      try {
+        const updatedSales = [...sales];
+        const updatedStock = [...stock];
+        const saleIndex = updatedSales.findIndex(s => s.id === saleId);
+
+        if (saleIndex !== -1) {
+          const sale = updatedSales[saleIndex];
+          if (sale.stockItemId) {
+            const stockIndex = updatedStock.findIndex(s => s.id === sale.stockItemId);
+            if (stockIndex !== -1) {
+              updatedStock[stockIndex] = {
+                ...updatedStock[stockIndex],
+                quantity: updatedStock[stockIndex].quantity + 1
+              };
+            }
+          }
+
+          updatedSales.splice(saleIndex, 1);
+
+          await setDoc(doc(db, "marketState", "sales"), { data: updatedSales });
+          if (sale.stockItemId) {
+            await setDoc(doc(db, "marketState", "stock"), { data: updatedStock });
+          }
+          return;
+        }
+      } catch (err) {
+        console.warn("Direct Firestore write failed for sale delete, falling back to REST:", err);
+      }
+    }
+
     const res = await fetch(`/api/admin/sales/${saleId}/delete`, {
       method: 'POST'
     });
 
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to delete sale.");
+      let errMsg = "Failed to delete sale.";
+      try {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          errMsg = data.error || errMsg;
+        } else {
+          errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected Response format'}`;
+        }
+      } catch (e) {
+        errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected error'}`;
+      }
+      throw new Error(errMsg);
     }
 
     await refreshAppState();
@@ -460,6 +995,38 @@ export default function App() {
 
   // Admin: Approve cashout
   const handleRespondCashout = async (cashoutId: string, status: 'approved' | 'declined') => {
+    if (db) {
+      try {
+        const updatedCashouts = [...cashouts];
+        const updatedSales = [...sales];
+        const reqIndex = updatedCashouts.findIndex(r => r.id === cashoutId);
+
+        if (reqIndex !== -1) {
+          updatedCashouts[reqIndex] = {
+            ...updatedCashouts[reqIndex],
+            status,
+            payoutDate: status === "approved" ? new Date().toISOString() : undefined
+          };
+
+          updatedSales.forEach((sale, index) => {
+            if (sale.cashoutRequestId === cashoutId) {
+              updatedSales[index] = {
+                ...sale,
+                cashedOut: status === "approved" ? true : sale.cashedOut,
+                cashoutRequestId: status === "declined" ? null : sale.cashoutRequestId
+              };
+            }
+          });
+
+          await setDoc(doc(db, "marketState", "cashouts"), { data: updatedCashouts });
+          await setDoc(doc(db, "marketState", "sales"), { data: updatedSales });
+          return;
+        }
+      } catch (err) {
+        console.warn("Direct Firestore write failed for cashout response, falling back to REST:", err);
+      }
+    }
+
     const res = await fetch(`/api/admin/cashouts/${cashoutId}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -467,8 +1034,19 @@ export default function App() {
     });
 
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to register payout response.");
+      let errMsg = "Failed to register payout response.";
+      try {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          errMsg = data.error || errMsg;
+        } else {
+          errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected Response format'}`;
+        }
+      } catch (e) {
+        errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected error'}`;
+      }
+      throw new Error(errMsg);
     }
 
     await refreshAppState();
@@ -476,6 +1054,41 @@ export default function App() {
 
   // Admin: Approve trade-in
   const handleRespondTradeIn = async (tradeInId: string, status: 'approved' | 'declined', finalCredit?: number) => {
+    if (db) {
+      try {
+        const updatedTradeIns = [...tradeIns];
+        const updatedVendors = [...vendors];
+        const trIndex = updatedTradeIns.findIndex(t => t.id === tradeInId);
+
+        if (trIndex !== -1) {
+          const tradeIn = { ...updatedTradeIns[trIndex] };
+          tradeIn.status = status;
+
+          if (status === "approved") {
+            const credit = finalCredit !== undefined ? Number(finalCredit) : tradeIn.creditApplied;
+            tradeIn.creditApplied = credit;
+
+            const vendorIndex = updatedVendors.findIndex(v => v.id === tradeIn.vendorId);
+            if (vendorIndex !== -1) {
+              updatedVendors[vendorIndex] = {
+                ...updatedVendors[vendorIndex],
+                tradeCredit: Number((updatedVendors[vendorIndex].tradeCredit + credit).toFixed(2))
+              };
+            }
+          }
+          updatedTradeIns[trIndex] = tradeIn;
+
+          await setDoc(doc(db, "marketState", "tradeIns"), { data: updatedTradeIns });
+          if (status === "approved") {
+            await setDoc(doc(db, "marketState", "vendors"), { data: updatedVendors });
+          }
+          return;
+        }
+      } catch (err) {
+        console.warn("Direct Firestore write failed for trade-in response, falling back to REST:", err);
+      }
+    }
+
     const res = await fetch(`/api/admin/trade-ins/${tradeInId}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -483,8 +1096,19 @@ export default function App() {
     });
 
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to register trade-in response.");
+      let errMsg = "Failed to register trade-in response.";
+      try {
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          errMsg = data.error || errMsg;
+        } else {
+          errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected Response format'}`;
+        }
+      } catch (e) {
+        errMsg = `Server Error (${res.status}): ${res.statusText || 'Unexpected error'}`;
+      }
+      throw new Error(errMsg);
     }
 
     await refreshAppState();
