@@ -54,6 +54,7 @@ export interface CashoutRequest {
   vendorId: string;
   vendorName: string;
   amount: number;
+  originalAmount?: number; // Stores initial request amount if modified by owner
   date: string;
   status: 'pending' | 'approved' | 'declined';
   payoutDate?: string; // actual paid date

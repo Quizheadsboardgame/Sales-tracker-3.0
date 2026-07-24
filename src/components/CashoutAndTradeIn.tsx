@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { DollarSign, Coins, Clock, ArrowRight, ClipboardList, CheckCircle2, RefreshCw, Plus, Send, HelpCircle, FileText, Download } from 'lucide-react';
 import { CashoutRequest, TradeIn, Sale, Vendor } from '../types';
-import { isSaleMature } from '../payoutUtils';
+import { isSaleMature, calculateVendorBalances } from '../payoutUtils';
 import { downloadVendorClearedBalancePDF } from '../pdfUtils';
 
 interface CashoutAndTradeInProps {
@@ -29,7 +29,8 @@ export default function CashoutAndTradeIn({
   // Navigation sub-tabs
   const [cashoutTab, setCashoutTab] = useState<'cashout' | 'tradein'>('cashout');
 
-  // Form states (Trade-In)
+  // Form states
+  const [requestedAmountInput, setRequestedAmountInput] = useState<string>('');
   const [tradeInDetails, setTradeInDetails] = useState('');
   const [estimatedValue, setEstimatedValue] = useState('');
   const [creditRequested, setCreditRequested] = useState('');
@@ -39,26 +40,15 @@ export default function CashoutAndTradeIn({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Math for Payout Maturation
+  // Accurate Vendor Balances incorporating Trade-In deductions
   const now = new Date();
+  const vendorBalances = calculateVendorBalances(vendor, sales, cashouts, now);
+  const availableCash = vendorBalances.availableCash;
+  const pendingCash = vendorBalances.pendingCash;
+  const spentOnTradeIns = vendorBalances.spentOnTradeIns;
 
-  const vendorSales = sales.filter((s) => s.vendorId === vendor.id);
-
-  // Eligible Sales (not cashed out, no cashout request pending, mature on designated Friday)
-  let availableCash = 0;
-  let pendingCash = 0;
-  let matureSalesCount = 0;
-
-  vendorSales.forEach((sale) => {
-    if (!sale.cashedOut && !sale.cashoutRequestId) {
-      if (isSaleMature(sale.date, now)) {
-        availableCash += sale.vendorEarnings;
-        matureSalesCount++;
-      } else {
-        pendingCash += sale.vendorEarnings;
-      }
-    }
-  });
+  // Keep default requested amount input synced if empty
+  const currentRequestedNum = requestedAmountInput !== '' ? Number(requestedAmountInput) : availableCash;
 
   // Filter cashouts & trade-ins for this vendor
   const vendorCashouts = cashouts.filter((c) => c.vendorId === vendor.id);
@@ -75,10 +65,23 @@ export default function CashoutAndTradeIn({
       return;
     }
 
+    const withdrawAmt = requestedAmountInput !== '' ? Number(requestedAmountInput) : availableCash;
+
+    if (isNaN(withdrawAmt) || withdrawAmt <= 0) {
+      setErrorMsg("Please enter a valid cash out amount greater than £0.");
+      return;
+    }
+
+    if (withdrawAmt > availableCash + 0.001) {
+      setErrorMsg(`Requested amount (£${withdrawAmt.toFixed(2)}) exceeds your available cleared balance of £${availableCash.toFixed(2)}.`);
+      return;
+    }
+
     setLoading(true);
     try {
-      await onRequestCashout(vendor.id, availableCash);
-      setSuccessMsg(`Success! Requested payout of £${availableCash.toFixed(2)} for ${matureSalesCount} mature sales.`);
+      await onRequestCashout(vendor.id, withdrawAmt);
+      setSuccessMsg(`Success! Requested payout of £${withdrawAmt.toFixed(2)}.`);
+      setRequestedAmountInput('');
       setTimeout(() => setSuccessMsg(null), 4000);
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to submit cashout request.");
@@ -233,36 +236,119 @@ export default function CashoutAndTradeIn({
               </button>
             </div>
 
-            {/* Quick cashout calculator */}
-            <div className="bg-zinc-900 text-white rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest block">
-                  Eligible Hold Cleared Balance
-                </span>
-                <span className="text-3xl font-black tracking-tight block mt-1">
-                  £{availableCash.toFixed(2)}
-                </span>
-                <span className="text-xs font-semibold text-zinc-400 block mt-1">
-                  Total of {matureSalesCount} mature card transactions
-                </span>
+            {/* Cashout calculator & request card */}
+            <div className="bg-zinc-900 text-white rounded-xl p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-zinc-800">
+                <div>
+                  <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest block">
+                    Eligible Hold Cleared Balance
+                  </span>
+                  <span className="text-3xl font-black tracking-tight block mt-1 text-emerald-400">
+                    £{availableCash.toFixed(2)}
+                  </span>
+                  <span className="text-xs font-semibold text-zinc-400 block mt-0.5">
+                    {spentOnTradeIns > 0 ? (
+                      <>
+                        Raw cleared sales: <strong>£{vendorBalances.rawClearFunds.toFixed(2)}</strong> (minus <strong>£{spentOnTradeIns.toFixed(2)}</strong> spent on trade-ins)
+                      </>
+                    ) : (
+                      <>
+                        Total of {sales.filter((s) => s.vendorId === vendor.id && !s.cashedOut && !s.cashoutRequestId && isSaleMature(s.date, now)).length} mature card transactions
+                      </>
+                    )}
+                  </span>
+                </div>
+
+                {availableCash > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 self-start sm:self-center">
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase mr-1">Quick Select:</span>
+                    <button
+                      type="button"
+                      id="btn-preset-25"
+                      onClick={() => setRequestedAmountInput((availableCash * 0.25).toFixed(2))}
+                      className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold rounded cursor-pointer transition-colors"
+                    >
+                      25%
+                    </button>
+                    <button
+                      type="button"
+                      id="btn-preset-50"
+                      onClick={() => setRequestedAmountInput((availableCash * 0.50).toFixed(2))}
+                      className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold rounded cursor-pointer transition-colors"
+                    >
+                      50%
+                    </button>
+                    <button
+                      type="button"
+                      id="btn-preset-75"
+                      onClick={() => setRequestedAmountInput((availableCash * 0.75).toFixed(2))}
+                      className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold rounded cursor-pointer transition-colors"
+                    >
+                      75%
+                    </button>
+                    <button
+                      type="button"
+                      id="btn-preset-max"
+                      onClick={() => setRequestedAmountInput(availableCash.toFixed(2))}
+                      className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded cursor-pointer transition-colors"
+                    >
+                      Full Balance
+                    </button>
+                  </div>
+                )}
               </div>
 
-              <button
-                id="btn-request-cashout-submit"
-                onClick={handleCashoutSubmit}
-                disabled={availableCash <= 0 || loading}
-                className="px-5 py-3 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-extrabold text-xs rounded-lg tracking-wide transition-all shadow-xs flex items-center justify-center gap-1.5 focus:outline-none"
-              >
-                {loading ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Lodging request...
-                  </>
-                ) : (
-                  <>
-                    <DollarSign className="w-4 h-4" /> Request Cash Out
-                  </>
-                )}
-              </button>
+              {availableCash > 0 ? (
+                <form onSubmit={handleCashoutSubmit} className="space-y-3 pt-1">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    <div className="relative flex-1">
+                      <label htmlFor="input-withdraw-amount" className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
+                        Withdrawal Amount (£)
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 font-bold text-sm">£</span>
+                        <input
+                          id="input-withdraw-amount"
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          max={availableCash}
+                          value={requestedAmountInput}
+                          onChange={(e) => setRequestedAmountInput(e.target.value)}
+                          placeholder={availableCash.toFixed(2)}
+                          className="w-full pl-7 pr-3 py-2 bg-zinc-800 border border-zinc-700 focus:border-blue-500 rounded-lg text-white font-bold text-sm focus:outline-none transition-colors"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      id="btn-request-cashout-submit"
+                      type="submit"
+                      disabled={loading || availableCash <= 0 || (requestedAmountInput !== '' && Number(requestedAmountInput) <= 0)}
+                      className="sm:self-end py-2.5 px-6 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-extrabold text-xs rounded-lg tracking-wide transition-all shadow-xs flex items-center justify-center gap-1.5 focus:outline-none cursor-pointer"
+                    >
+                      {loading ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Lodging request...
+                        </>
+                      ) : (
+                        <>
+                          <DollarSign className="w-4 h-4" /> Request Cash Out
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {requestedAmountInput !== '' && !isNaN(Number(requestedAmountInput)) && Number(requestedAmountInput) > 0 && (
+                    <div className="text-[11px] text-zinc-400 font-medium flex justify-between pt-1">
+                      <span>Requesting: <strong className="text-white">£{Number(requestedAmountInput).toFixed(2)}</strong></span>
+                      <span>Remaining Cleared Balance: <strong className="text-emerald-400">£{Math.max(0, availableCash - Number(requestedAmountInput)).toFixed(2)}</strong></span>
+                    </div>
+                  )}
+                </form>
+              ) : (
+                <p className="text-xs text-zinc-400 font-medium">You have £0.00 cleared funds available to withdraw right now.</p>
+              )}
             </div>
 
             {/* Cashout History */}

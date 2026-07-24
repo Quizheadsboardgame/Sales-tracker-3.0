@@ -802,6 +802,10 @@ app.post("/api/cashouts", (req, res) => {
   }
 
   const reqAmount = Number(amount);
+  if (isNaN(reqAmount) || reqAmount <= 0) {
+    res.status(400).json({ error: "Amount must be a positive number" });
+    return;
+  }
 
   const reqId = "req_" + Date.now();
   const newRequest: CashoutRequest = {
@@ -813,8 +817,9 @@ app.post("/api/cashouts", (req, res) => {
     status: "pending"
   };
 
-  // Find all un-cashedout, eligible sales for this vendor that are mature (Wednesday: 16 days, Saturday: 13 days)
+  // Find un-cashedout, eligible sales for this vendor that are mature and tag up to reqAmount
   let taggedSalesCount = 0;
+  let accumulatedEarnings = 0;
   state.sales.forEach((sale) => {
     if (
       sale.vendorId === vendorId &&
@@ -822,8 +827,11 @@ app.post("/api/cashouts", (req, res) => {
       !sale.cashoutRequestId &&
       isSaleMature(sale.date, new Date())
     ) {
-      sale.cashoutRequestId = reqId;
-      taggedSalesCount++;
+      if (accumulatedEarnings < reqAmount) {
+        sale.cashoutRequestId = reqId;
+        accumulatedEarnings += sale.vendorEarnings;
+        taggedSalesCount++;
+      }
     }
   });
 
@@ -833,10 +841,60 @@ app.post("/api/cashouts", (req, res) => {
   res.json({ success: true, request: newRequest, taggedSales: taggedSalesCount });
 });
 
-// Admin Approve Cashout
+// Admin Update Cashout Amount
+app.post("/api/admin/cashouts/:id/update-amount", (req, res) => {
+  const { id } = req.params;
+  const { amount } = req.body;
+
+  const newAmt = Number(amount);
+  if (isNaN(newAmt) || newAmt <= 0) {
+    res.status(400).json({ error: "Amount must be a positive number" });
+    return;
+  }
+
+  const reqIndex = state.cashouts.findIndex((r) => r.id === id);
+  if (reqIndex === -1) {
+    res.status(404).json({ error: "Cashout request not found" });
+    return;
+  }
+
+  const request = state.cashouts[reqIndex];
+  if (request.originalAmount === undefined) {
+    request.originalAmount = request.amount;
+  }
+  request.amount = newAmt;
+
+  // Untag all sales currently tagged with this request
+  state.sales.forEach((sale) => {
+    if (sale.cashoutRequestId === id) {
+      sale.cashoutRequestId = null;
+    }
+  });
+
+  // Re-tag sales for this vendor up to newAmt
+  let accumulated = 0;
+  state.sales.forEach((sale) => {
+    if (
+      sale.vendorId === request.vendorId &&
+      !sale.cashedOut &&
+      !sale.cashoutRequestId &&
+      isSaleMature(sale.date, new Date())
+    ) {
+      if (accumulated < newAmt) {
+        sale.cashoutRequestId = id;
+        accumulated += sale.vendorEarnings;
+      }
+    }
+  });
+
+  saveState();
+  res.json({ success: true, cashouts: state.cashouts, sales: state.sales, request });
+});
+
+// Admin Approve/Decline Cashout
 app.post("/api/admin/cashouts/:id/respond", (req, res) => {
   const { id } = req.params;
-  const { status } = req.body; // 'approved' or 'declined'
+  const { status, amount } = req.body; // 'approved' or 'declined', optional updated amount
 
   if (!status || (status !== "approved" && status !== "declined")) {
     res.status(400).json({ error: "Status must be 'approved' or 'declined'" });
@@ -852,19 +910,44 @@ app.post("/api/admin/cashouts/:id/respond", (req, res) => {
   const request = state.cashouts[reqIndex];
   request.status = status;
 
+  if (amount !== undefined && !isNaN(Number(amount))) {
+    const newAmt = Number(amount);
+    if (newAmt > 0 && newAmt !== request.amount) {
+      if (request.originalAmount === undefined) {
+        request.originalAmount = request.amount;
+      }
+      request.amount = newAmt;
+    }
+  }
+
   if (status === "approved") {
     request.payoutDate = new Date().toISOString();
-    // Mark associated sales as fully cashed out
-    state.sales.forEach((sale) => {
-      if (sale.cashoutRequestId === id) {
+    
+    let taggedSales = state.sales.filter((s) => s.cashoutRequestId === id);
+    if (taggedSales.length === 0) {
+      taggedSales = state.sales.filter(
+        (s) => s.vendorId === request.vendorId && !s.cashedOut && isSaleMature(s.date, new Date())
+      );
+    }
+
+    let sumPaid = 0;
+    taggedSales.forEach((sale) => {
+      if (sumPaid < request.amount) {
         sale.cashedOut = true;
+        sale.cashoutRequestId = id;
+        sumPaid += sale.vendorEarnings;
+      } else {
+        // Any excess sale exceeding the approved amount is released back to vendor's bank balance
+        sale.cashoutRequestId = null;
+        sale.cashedOut = false;
       }
     });
   } else {
-    // If declined, release the sales so they can be cashing out again
+    // If declined, release all sales back to the vendor's bank balance
     state.sales.forEach((sale) => {
       if (sale.cashoutRequestId === id) {
         sale.cashoutRequestId = null;
+        sale.cashedOut = false;
       }
     });
   }

@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Vendor, Sale, CashoutRequest } from './types';
-import { isSaleMature, getRemainingDays, getPayoutDate } from './payoutUtils';
+import { isSaleMature, getRemainingDays, getPayoutDate, calculateVendorBalances } from './payoutUtils';
 
 export function downloadVendorClearedBalancePDF(
   vendor: Vendor,
@@ -23,8 +23,9 @@ export function downloadVendorClearedBalancePDF(
   // Pending sales (not cashed out, no cashout request pending, NOT mature)
   const pendingSales = vendorSales.filter((s) => !s.cashedOut && !s.cashoutRequestId && !isSaleMature(s.date, now));
 
-  const availableCash = clearedSales.reduce((acc, s) => acc + s.vendorEarnings, 0);
-  const pendingCash = pendingSales.reduce((acc, s) => acc + s.vendorEarnings, 0);
+  const balances = calculateVendorBalances(vendor, sales, cashouts, now);
+  const availableCash = balances.availableCash;
+  const pendingCash = balances.pendingCash;
   const totalVendorSalesGross = vendorSales.reduce((acc, s) => acc + s.price, 0);
   const totalVendorEarningsAll = vendorSales.reduce((acc, s) => acc + s.vendorEarnings, 0);
 

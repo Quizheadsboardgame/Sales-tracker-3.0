@@ -16,7 +16,8 @@ interface MasterControlProps {
     commission: number;
     color?: string;
   }) => Promise<void>;
-  onRespondCashout: (cashoutId: string, status: 'approved' | 'declined') => Promise<void>;
+  onRespondCashout: (cashoutId: string, status: 'approved' | 'declined', newAmount?: number) => Promise<void>;
+  onUpdateCashoutAmount?: (cashoutId: string, newAmount: number) => Promise<void>;
   onRespondTradeIn: (tradeInId: string, status: 'approved' | 'declined', finalCredit?: number) => Promise<void>;
   onUpdateSale: (saleId: string, saleData: {
     vendorId: string;
@@ -35,6 +36,7 @@ export default function MasterControl({
   tradeIns,
   onUpdateVendor,
   onRespondCashout,
+  onUpdateCashoutAmount,
   onRespondTradeIn,
   onUpdateSale,
   onDeleteSale,
@@ -57,6 +59,10 @@ export default function MasterControl({
 
   // Tabs for Master Control
   const [activeTab, setActiveTab] = useState<'vendors' | 'cashouts' | 'tradeins' | 'sales' | 'backups'>('vendors');
+
+  // Editing cashout request state
+  const [editingCashoutId, setEditingCashoutId] = useState<string | null>(null);
+  const [editCashoutAmount, setEditCashoutAmount] = useState<string>('');
 
   // Backups Management States
   const [backupsList, setBackupsList] = useState<{ filename: string; size: number; mtime: string }[]>([]);
@@ -349,15 +355,39 @@ export default function MasterControl({
     setShowCreateForm(true);
   };
 
-  const handleCashoutDecision = async (id: string, status: 'approved' | 'declined') => {
+  const handleCashoutDecision = async (id: string, status: 'approved' | 'declined', customAmount?: number) => {
     setLoading(true);
     setError(null);
     try {
-      await onRespondCashout(id, status);
-      setSuccess(`Cash out request successfully ${status}!`);
+      await onRespondCashout(id, status, customAmount);
+      setSuccess(`Cash out request successfully ${status}${customAmount ? ` for £${customAmount.toFixed(2)}` : ''}!`);
+      setEditingCashoutId(null);
       setTimeout(() => setSuccess(null), 3000);
     } catch (err: any) {
       setError(err.message || "Failed to submit response.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveCashoutAmount = async (id: string, newAmount: number) => {
+    if (isNaN(newAmount) || newAmount <= 0) {
+      setError("Please enter a valid amount greater than £0.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      if (onUpdateCashoutAmount) {
+        await onUpdateCashoutAmount(id, newAmount);
+      } else {
+        await onRespondCashout(id, 'pending' as any, newAmount);
+      }
+      setSuccess(`Updated cash out request amount to £${newAmount.toFixed(2)}!`);
+      setEditingCashoutId(null);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message || "Failed to update cash out amount.");
     } finally {
       setLoading(false);
     }
@@ -584,40 +614,129 @@ export default function MasterControl({
             </div>
           ) : (
             <div className="space-y-3">
-              {pendingCashouts.map((req) => (
-                <div key={req.id} className="bg-white border border-zinc-200 rounded-xl p-5 shadow-xs flex flex-col sm:flex-row justify-between sm:items-center gap-4">
-                  <div>
-                    <span className="bg-blue-50 border border-blue-100 text-blue-700 text-[9px] font-extrabold px-2 py-0.5 rounded uppercase tracking-wider">
-                      Request ID: {req.id}
-                    </span>
-                    <h4 className="text-sm font-extrabold text-zinc-800 mt-1.5">
-                      {req.vendorName} is cashing out <span className="text-emerald-600 font-black">£{req.amount.toFixed(2)}</span>
-                    </h4>
-                    <p className="text-[11px] text-zinc-400 font-semibold mt-1">
-                      Submitted on: {new Date(req.date).toLocaleDateString('en-GB')} at {new Date(req.date).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'})}
-                    </p>
-                  </div>
+              {pendingCashouts.map((req) => {
+                const isEditingThisReq = editingCashoutId === req.id;
+                return (
+                  <div key={req.id} className="bg-white border border-zinc-200 rounded-xl p-5 shadow-xs flex flex-col gap-4">
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="bg-blue-50 border border-blue-100 text-blue-700 text-[9px] font-extrabold px-2 py-0.5 rounded uppercase tracking-wider">
+                            Request ID: {req.id}
+                          </span>
+                          {req.originalAmount && req.originalAmount !== req.amount && (
+                            <span className="bg-amber-50 border border-amber-200 text-amber-700 text-[9px] font-bold px-2 py-0.5 rounded">
+                              Edited by Owner (Originally £{req.originalAmount.toFixed(2)})
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="text-sm font-extrabold text-zinc-800 mt-1.5">
+                          {req.vendorName} requested withdrawal of <span className="text-emerald-600 font-black">£{req.amount.toFixed(2)}</span>
+                        </h4>
+                        <p className="text-[11px] text-zinc-400 font-semibold mt-1">
+                          Submitted on: {new Date(req.date).toLocaleDateString('en-GB')} at {new Date(req.date).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit'})}
+                        </p>
+                      </div>
 
-                  <div className="flex gap-2 shrink-0">
-                    <button
-                      id={`btn-approve-cashout-${req.id}`}
-                      onClick={() => handleCashoutDecision(req.id, 'approved')}
-                      disabled={loading}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 focus:outline-none cursor-pointer"
-                    >
-                      <Check className="w-3.5 h-3.5" /> Approve & Payout
-                    </button>
-                    <button
-                      id={`btn-decline-cashout-${req.id}`}
-                      onClick={() => handleCashoutDecision(req.id, 'declined')}
-                      disabled={loading}
-                      className="px-4 py-2 bg-zinc-100 hover:bg-red-50 hover:text-red-700 text-zinc-600 rounded-lg text-xs font-bold transition-all focus:outline-none cursor-pointer"
-                    >
-                      Decline
-                    </button>
+                      {!isEditingThisReq && (
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <button
+                            id={`btn-edit-amount-${req.id}`}
+                            onClick={() => {
+                              setEditingCashoutId(req.id);
+                              setEditCashoutAmount(req.amount.toString());
+                            }}
+                            disabled={loading}
+                            className="px-3 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 focus:outline-none cursor-pointer"
+                            title="Edit the withdrawal amount requested by vendor"
+                          >
+                            <Edit2 className="w-3.5 h-3.5 text-zinc-500" /> Edit Amount
+                          </button>
+                          <button
+                            id={`btn-approve-cashout-${req.id}`}
+                            onClick={() => handleCashoutDecision(req.id, 'approved')}
+                            disabled={loading}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 focus:outline-none cursor-pointer"
+                          >
+                            <Check className="w-3.5 h-3.5" /> Approve & Payout
+                          </button>
+                          <button
+                            id={`btn-decline-cashout-${req.id}`}
+                            onClick={() => handleCashoutDecision(req.id, 'declined')}
+                            disabled={loading}
+                            className="px-4 py-2 bg-zinc-100 hover:bg-red-50 hover:text-red-700 text-zinc-600 rounded-lg text-xs font-bold transition-all focus:outline-none cursor-pointer"
+                          >
+                            Decline
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Inline Edit Form for Owner */}
+                    {isEditingThisReq && (
+                      <div className="mt-2 p-4 bg-zinc-50 border border-zinc-200 rounded-lg space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <label htmlFor={`input-edit-cashout-${req.id}`} className="text-xs font-bold text-zinc-700">
+                            Adjust Requested Withdrawal Amount (£):
+                          </label>
+                          <span className="text-[11px] text-zinc-500 font-medium">
+                            Vendor requested: <strong>£{req.amount.toFixed(2)}</strong>
+                          </span>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                          <div className="relative flex-1">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 font-bold text-sm">£</span>
+                            <input
+                              id={`input-edit-cashout-${req.id}`}
+                              type="number"
+                              step="0.01"
+                              min="0.01"
+                              value={editCashoutAmount}
+                              onChange={(e) => setEditCashoutAmount(e.target.value)}
+                              className="w-full pl-7 pr-3 py-2 bg-white border border-zinc-300 focus:border-blue-600 rounded-lg text-zinc-900 font-bold text-sm focus:outline-none"
+                            />
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              id={`btn-save-cashout-amount-${req.id}`}
+                              type="button"
+                              onClick={() => handleSaveCashoutAmount(req.id, Number(editCashoutAmount))}
+                              disabled={loading || !editCashoutAmount || Number(editCashoutAmount) <= 0}
+                              className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-900 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+                            >
+                              Save Amount
+                            </button>
+                            <button
+                              id={`btn-approve-modified-cashout-${req.id}`}
+                              type="button"
+                              onClick={() => handleCashoutDecision(req.id, 'approved', Number(editCashoutAmount))}
+                              disabled={loading || !editCashoutAmount || Number(editCashoutAmount) <= 0}
+                              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                            >
+                              <Check className="w-3.5 h-3.5" /> Approve £{Number(editCashoutAmount || 0).toFixed(2)}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingCashoutId(null)}
+                              className="px-3 py-2 bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-600 rounded-lg text-xs font-bold cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+
+                        {editCashoutAmount && !isNaN(Number(editCashoutAmount)) && req.amount > Number(editCashoutAmount) && (
+                          <div className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 p-2 rounded-md">
+                            💡 Remaining balance of <strong>£{(req.amount - Number(editCashoutAmount)).toFixed(2)}</strong> stays in the vendor's bank balance (cleared funds).
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ShoppingBag, Search, Plus, Check, CheckCircle2, RefreshCw, Sparkles, UserCheck, Calendar, Trash2, Edit2, X, TrendingUp, Coins, BarChart3, ChevronDown, ChevronUp, Download } from 'lucide-react';
 import { StockItem, Vendor, Sale, CashoutRequest, TradeIn } from '../types';
-import { isSaleMature, getRemainingDays } from '../payoutUtils';
+import { isSaleMature, getRemainingDays, calculateVendorBalances } from '../payoutUtils';
 import { downloadVendorClearedBalancePDF } from '../pdfUtils';
 
 interface JointStaffPageProps {
@@ -111,32 +111,8 @@ export default function JointStaffPage({
     const vendor = vendors.find(v => v.id === vendorId);
     if (!vendor) return 0;
 
-    const vendorSales = sales.filter((s) => s.vendorId === vendorId);
-    
-    let availableCash = 0;
-    let pendingCash = 0;
-    const now = new Date();
-
-    vendorSales.forEach((sale) => {
-      if (sale.cashedOut) {
-        // fully paid, not in balance
-      } else if (sale.cashoutRequestId) {
-        // If it has a cashout request (pending or approved but not cleared), it's not available
-      } else {
-        if (isSaleMature(sale.date, now)) {
-          availableCash += sale.vendorEarnings;
-        } else {
-          pendingCash += sale.vendorEarnings;
-        }
-      }
-    });
-
-    const vendorCashouts = cashouts ? cashouts.filter((c) => c.vendorId === vendorId) : [];
-    const pendingCashoutsAmount = vendorCashouts
-      .filter((c) => c.status === 'pending')
-      .reduce((sum, c) => sum + c.amount, 0);
-
-    return availableCash + pendingCash + (vendor.tradeCredit || 0) + pendingCashoutsAmount;
+    const balances = calculateVendorBalances(vendor, sales, cashouts || [], new Date());
+    return balances.consolidatedBalance;
   };
 
   // Multiple items state (Sale Basket)

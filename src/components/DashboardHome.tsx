@@ -1,7 +1,7 @@
 import React from 'react';
 import { TrendingUp, DollarSign, Clock, Coins, Percent, ArrowUpRight, CheckCircle2, ShieldCheck, Scale, ArrowDownRight, ClipboardList, FileText, Download } from 'lucide-react';
 import { Sale, Vendor, CashoutRequest, TradeIn } from '../types';
-import { isSaleMature, getRemainingDays, getPayoutDate } from '../payoutUtils';
+import { isSaleMature, getRemainingDays, getPayoutDate, calculateVendorBalances } from '../payoutUtils';
 import { downloadVendorClearedBalancePDF } from '../pdfUtils';
 
 interface DashboardHomeProps {
@@ -32,37 +32,17 @@ export default function DashboardHome({ vendor, sales, cashouts, tradeIns, onNav
   const todayGross = todaySales.reduce((acc, curr) => acc + curr.price, 0);
   const todayEarnings = todaySales.reduce((acc, curr) => acc + curr.vendorEarnings, 0);
 
-  // Math for Payout Maturation
-  let availableCash = 0;
-  let pendingCash = 0;
-  let cashedOutTotal = 0;
-
-  vendorSales.forEach((sale) => {
-    if (sale.cashedOut) {
-      cashedOutTotal += sale.vendorEarnings;
-    } else if (sale.cashoutRequestId) {
-      // If it has a cashout request (pending or approved but not cleared), it's not available
-      // but let's see, pending requests are kept track of.
-    } else {
-      if (isSaleMature(sale.date, now)) {
-        availableCash += sale.vendorEarnings;
-      } else {
-        pendingCash += sale.vendorEarnings;
-      }
-    }
-  });
+  // Accurate Vendor Balances incorporating Trade-In deductions
+  const vendorBalances = calculateVendorBalances(vendor, sales, cashouts, now);
+  const availableCash = vendorBalances.availableCash;
+  const pendingCash = vendorBalances.pendingCash;
+  const pendingCashoutsAmount = vendorBalances.pendingCashoutsAmount;
+  const totalPendingPayouts = pendingCash + pendingCashoutsAmount;
+  const consolidatedBalance = vendorBalances.consolidatedBalance;
 
   // Filter cashouts & trade-ins for this vendor
   const vendorCashouts = cashouts.filter((c) => c.vendorId === vendor.id);
   const vendorTradeIns = tradeIns.filter((t) => t.vendorId === vendor.id);
-
-  // Total pending cashout requests
-  const pendingCashoutsAmount = vendorCashouts
-    .filter((c) => c.status === 'pending')
-    .reduce((sum, c) => sum + c.amount, 0);
-
-  // Total pending payouts (sales on hold + pending cashout requests)
-  const totalPendingPayouts = pendingCash + pendingCashoutsAmount;
 
   // Total spent on trade-ins (approved negative trade-ins, logged at the till)
   const spentOnTradeIns = vendorTradeIns
@@ -73,9 +53,6 @@ export default function DashboardHome({ vendor, sales, cashouts, tradeIns, onNav
   const earnedTradeCredit = vendorTradeIns
     .filter((t) => t.status === 'approved' && t.creditApplied > 0)
     .reduce((sum, t) => sum + t.creditApplied, 0);
-
-  // Consolidated overall balance
-  const consolidatedBalance = availableCash + pendingCash + vendor.tradeCredit + pendingCashoutsAmount;
 
   // Calculate overall gross and net sales
   const allTimeGross = vendorSales.reduce((acc, s) => acc + s.price, 0);

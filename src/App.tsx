@@ -18,7 +18,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, collection, onSnapshot, doc, setDoc } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
 import { Vendor, StockItem, Sale, TradeProposal, CashoutRequest, TradeIn } from './types';
-import { isSaleMature } from './payoutUtils';
+import { isSaleMature, calculateVendorBalances } from './payoutUtils';
 import PINLogin from './components/PINLogin';
 import DashboardHome from './components/DashboardHome';
 import JointStaffPage from './components/JointStaffPage';
@@ -688,6 +688,9 @@ export default function App() {
 
   // Request cashout
   const handleRequestCashout = async (vendorId: string, amount: number) => {
+    const reqAmount = Number(amount);
+    if (isNaN(reqAmount) || reqAmount <= 0) return;
+
     if (db) {
       try {
         const vendor = vendors.find(v => v.id === vendorId);
@@ -700,11 +703,12 @@ export default function App() {
             id: reqId,
             vendorId,
             vendorName: vendor.name,
-            amount: Number(amount),
+            amount: reqAmount,
             date: new Date().toISOString(),
             status: "pending"
           };
 
+          let accumulatedEarnings = 0;
           updatedSales.forEach((sale, index) => {
             if (
               sale.vendorId === vendorId &&
@@ -712,10 +716,13 @@ export default function App() {
               !sale.cashoutRequestId &&
               isSaleMature(sale.date, new Date())
             ) {
-              updatedSales[index] = {
-                ...sale,
-                cashoutRequestId: reqId
-              };
+              if (accumulatedEarnings < reqAmount) {
+                updatedSales[index] = {
+                  ...sale,
+                  cashoutRequestId: reqId
+                };
+                accumulatedEarnings += sale.vendorEarnings;
+              }
             }
           });
 
@@ -733,7 +740,7 @@ export default function App() {
     const res = await fetch('/api/cashouts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vendorId, amount })
+      body: JSON.stringify({ vendorId, amount: reqAmount })
     });
 
     if (!res.ok) {
@@ -999,8 +1006,11 @@ export default function App() {
     await refreshAppState();
   };
 
-  // Admin: Approve cashout
-  const handleRespondCashout = async (cashoutId: string, status: 'approved' | 'declined') => {
+  // Admin: Update requested cashout amount
+  const handleUpdateCashoutAmount = async (cashoutId: string, newAmount: number) => {
+    const amt = Number(newAmount);
+    if (isNaN(amt) || amt <= 0) return;
+
     if (db) {
       try {
         const updatedCashouts = [...cashouts];
@@ -1008,21 +1018,118 @@ export default function App() {
         const reqIndex = updatedCashouts.findIndex(r => r.id === cashoutId);
 
         if (reqIndex !== -1) {
+          const reqObj = updatedCashouts[reqIndex];
+          const orig = reqObj.originalAmount ?? reqObj.amount;
           updatedCashouts[reqIndex] = {
-            ...updatedCashouts[reqIndex],
+            ...reqObj,
+            amount: amt,
+            originalAmount: orig
+          };
+
+          // Untag all sales currently tagged with this request
+          updatedSales.forEach((sale, index) => {
+            if (sale.cashoutRequestId === cashoutId) {
+              updatedSales[index] = { ...sale, cashoutRequestId: null };
+            }
+          });
+
+          // Re-tag sales for this vendor up to newAmount
+          let accumulated = 0;
+          updatedSales.forEach((sale, index) => {
+            if (
+              sale.vendorId === reqObj.vendorId &&
+              !sale.cashedOut &&
+              !sale.cashoutRequestId &&
+              isSaleMature(sale.date, new Date())
+            ) {
+              if (accumulated < amt) {
+                updatedSales[index] = { ...sale, cashoutRequestId: cashoutId };
+                accumulated += sale.vendorEarnings;
+              }
+            }
+          });
+
+          await setDoc(doc(db, "marketState", "cashouts"), { data: updatedCashouts });
+          await setDoc(doc(db, "marketState", "sales"), { data: updatedSales });
+          return;
+        }
+      } catch (err) {
+        console.warn("Direct Firestore write failed for cashout update, falling back to REST:", err);
+      }
+    }
+
+    const res = await fetch(`/api/admin/cashouts/${cashoutId}/update-amount`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount: amt })
+    });
+
+    if (!res.ok) {
+      let errMsg = "Failed to update cash out amount.";
+      try {
+        const data = await res.json();
+        errMsg = data.error || errMsg;
+      } catch (e) {}
+      throw new Error(errMsg);
+    }
+
+    await refreshAppState();
+  };
+
+  // Admin: Approve / Decline cashout
+  const handleRespondCashout = async (cashoutId: string, status: 'approved' | 'declined', newAmount?: number) => {
+    if (db) {
+      try {
+        const updatedCashouts = [...cashouts];
+        const updatedSales = [...sales];
+        const reqIndex = updatedCashouts.findIndex(r => r.id === cashoutId);
+
+        if (reqIndex !== -1) {
+          const currentReq = updatedCashouts[reqIndex];
+          const finalAmount = newAmount !== undefined && newAmount > 0 ? Number(newAmount) : currentReq.amount;
+          const orig = newAmount !== undefined && newAmount !== currentReq.amount ? (currentReq.originalAmount ?? currentReq.amount) : currentReq.originalAmount;
+
+          updatedCashouts[reqIndex] = {
+            ...currentReq,
+            amount: finalAmount,
+            originalAmount: orig,
             status,
             payoutDate: status === "approved" ? new Date().toISOString() : undefined
           };
 
-          updatedSales.forEach((sale, index) => {
-            if (sale.cashoutRequestId === cashoutId) {
-              updatedSales[index] = {
-                ...sale,
-                cashedOut: status === "approved" ? true : sale.cashedOut,
-                cashoutRequestId: status === "declined" ? null : sale.cashoutRequestId
-              };
-            }
-          });
+          if (status === "approved") {
+            let sumPaid = 0;
+            updatedSales.forEach((sale, index) => {
+              if (sale.cashoutRequestId === cashoutId) {
+                if (sumPaid < finalAmount) {
+                  updatedSales[index] = {
+                    ...sale,
+                    cashedOut: true,
+                    cashoutRequestId: cashoutId
+                  };
+                  sumPaid += sale.vendorEarnings;
+                } else {
+                  // Any excess sale exceeding the approved amount is released back to vendor's bank balance
+                  updatedSales[index] = {
+                    ...sale,
+                    cashedOut: false,
+                    cashoutRequestId: null
+                  };
+                }
+              }
+            });
+          } else {
+            // Declined: release all sales back to vendor bank balance
+            updatedSales.forEach((sale, index) => {
+              if (sale.cashoutRequestId === cashoutId) {
+                updatedSales[index] = {
+                  ...sale,
+                  cashedOut: false,
+                  cashoutRequestId: null
+                };
+              }
+            });
+          }
 
           await setDoc(doc(db, "marketState", "cashouts"), { data: updatedCashouts });
           await setDoc(doc(db, "marketState", "sales"), { data: updatedSales });
@@ -1036,7 +1143,7 @@ export default function App() {
     const res = await fetch(`/api/admin/cashouts/${cashoutId}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status })
+      body: JSON.stringify({ status, amount: newAmount })
     });
 
     if (!res.ok) {
@@ -1489,6 +1596,7 @@ export default function App() {
             tradeIns={tradeIns}
             onUpdateVendor={handleUpdateVendor}
             onRespondCashout={handleRespondCashout}
+            onUpdateCashoutAmount={handleUpdateCashoutAmount}
             onRespondTradeIn={handleRespondTradeIn}
             onUpdateSale={handleUpdateSale}
             onDeleteSale={handleDeleteSale}
