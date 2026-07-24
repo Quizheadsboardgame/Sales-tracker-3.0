@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { DollarSign, Coins, Clock, ArrowRight, ClipboardList, CheckCircle2, RefreshCw, Plus, Send, HelpCircle } from 'lucide-react';
+import { DollarSign, Coins, Clock, ArrowRight, ClipboardList, CheckCircle2, RefreshCw, Plus, Send, HelpCircle, FileText, Download } from 'lucide-react';
 import { CashoutRequest, TradeIn, Sale, Vendor } from '../types';
 import { isSaleMature } from '../payoutUtils';
+import { downloadVendorClearedBalancePDF } from '../pdfUtils';
 
 interface CashoutAndTradeInProps {
   vendor: Vendor;
@@ -179,7 +180,7 @@ export default function CashoutAndTradeIn({
               <span className="text-emerald-600">£{availableCash.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-xs font-bold">
-              <span className="text-zinc-500">Locked Pending (Fri):</span>
+              <span className="text-zinc-500">Locked Pending:</span>
               <span className="text-amber-600">£{pendingCash.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-xs font-bold pt-1 border-t border-zinc-200">
@@ -187,6 +188,14 @@ export default function CashoutAndTradeIn({
               <span className="text-zinc-900">£{vendor.tradeCredit.toFixed(2)}</span>
             </div>
           </div>
+
+          <button
+            id="btn-sidebar-download-pdf"
+            onClick={() => downloadVendorClearedBalancePDF(vendor, sales, cashouts)}
+            className="w-full mt-2 py-2 px-3 bg-white hover:bg-zinc-100 border border-zinc-300 text-zinc-800 text-[11px] font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 shadow-2xs"
+          >
+            <FileText className="w-3.5 h-3.5 text-blue-600" /> Statement PDF
+          </button>
         </div>
       </div>
 
@@ -208,9 +217,20 @@ export default function CashoutAndTradeIn({
         {/* Tab 1: CASH OUT REQUESTS */}
         {cashoutTab === 'cashout' && (
           <div className="space-y-6">
-            <div className="space-y-1">
-              <h3 className="text-base font-black text-zinc-950 tracking-tight">Withdraw Mature Stall Funds</h3>
-              <p className="text-xs text-zinc-500 font-medium">All sales mature 12 days after the sale date before becoming eligible for payout. This protects business cash flow if card trade-ins are executed instead of cash sales.</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1 border-b border-zinc-100">
+              <div className="space-y-1">
+                <h3 className="text-base font-black text-zinc-950 tracking-tight">Withdraw Mature Stall Funds</h3>
+                <p className="text-xs text-zinc-500 font-medium">Sales clear on Friday payout days (Wednesday sales take 16 days, Saturday sales take 13 days) before becoming eligible for withdrawal.</p>
+              </div>
+              <button
+                id="btn-download-pdf-statement"
+                onClick={() => downloadVendorClearedBalancePDF(vendor, sales, cashouts)}
+                className="px-3.5 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-900 text-xs font-bold rounded-lg transition-all border border-zinc-200 shrink-0 flex items-center gap-1.5 shadow-2xs"
+                title="Download detailed PDF statement of sold cards & cleared balance"
+              >
+                <Download className="w-3.5 h-3.5 text-blue-600" />
+                <span>Download Statement (PDF)</span>
+              </button>
             </div>
 
             {/* Quick cashout calculator */}

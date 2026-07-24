@@ -813,7 +813,7 @@ app.post("/api/cashouts", (req, res) => {
     status: "pending"
   };
 
-  // Find all un-cashedout, eligible sales for this vendor that are mature (12-day hold rule)
+  // Find all un-cashedout, eligible sales for this vendor that are mature (Wednesday: 16 days, Saturday: 13 days)
   let taggedSalesCount = 0;
   state.sales.forEach((sale) => {
     if (

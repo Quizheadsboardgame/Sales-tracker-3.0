@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Search, Plus, Check, CheckCircle2, RefreshCw, Sparkles, UserCheck, Calendar, Trash2, Edit2, X, TrendingUp, Coins, BarChart3, ChevronDown, ChevronUp } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Check, CheckCircle2, RefreshCw, Sparkles, UserCheck, Calendar, Trash2, Edit2, X, TrendingUp, Coins, BarChart3, ChevronDown, ChevronUp, Download } from 'lucide-react';
 import { StockItem, Vendor, Sale, CashoutRequest, TradeIn } from '../types';
 import { isSaleMature, getRemainingDays } from '../payoutUtils';
+import { downloadVendorClearedBalancePDF } from '../pdfUtils';
 
 interface JointStaffPageProps {
   vendors: Vendor[];
@@ -531,7 +532,17 @@ export default function JointStaffPage({
               </div>
             </div>
             <div className="flex items-center gap-2 self-start sm:self-auto">
-              <div className="inline-flex text-[10px] bg-zinc-100 font-bold text-zinc-600 px-2.5 py-1.5 rounded">
+              <button
+                id="btn-vendor-download-pdf-joint"
+                type="button"
+                onClick={() => downloadVendorClearedBalancePDF(loggedInVendor, sales, cashouts)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-zinc-100 hover:bg-zinc-200 border border-zinc-200 rounded text-[10px] font-bold text-zinc-800 transition-colors cursor-pointer"
+                title="Download detailed PDF statement of sold cards & cleared balance"
+              >
+                <Download className="w-3 h-3 text-blue-600" />
+                <span>PDF Statement</span>
+              </button>
+              <div className="inline-flex text-[10px] bg-zinc-100 font-bold text-zinc-600 px-2.5 py-1 rounded">
                 Commission: {(loggedInVendor.commission * 100).toFixed(0)}%
               </div>
               <button

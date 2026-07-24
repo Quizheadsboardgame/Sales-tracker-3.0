@@ -1,7 +1,8 @@
 import React from 'react';
-import { TrendingUp, DollarSign, Clock, Coins, Percent, ArrowUpRight, CheckCircle2, ShieldCheck, Scale, ArrowDownRight, ClipboardList } from 'lucide-react';
+import { TrendingUp, DollarSign, Clock, Coins, Percent, ArrowUpRight, CheckCircle2, ShieldCheck, Scale, ArrowDownRight, ClipboardList, FileText, Download } from 'lucide-react';
 import { Sale, Vendor, CashoutRequest, TradeIn } from '../types';
 import { isSaleMature, getRemainingDays, getPayoutDate } from '../payoutUtils';
+import { downloadVendorClearedBalancePDF } from '../pdfUtils';
 
 interface DashboardHomeProps {
   vendor: Vendor;
@@ -221,7 +222,7 @@ export default function DashboardHome({ vendor, sales, cashouts, tradeIns, onNav
             </span>
             <div className="space-y-2.5">
               <div className="flex justify-between text-xs">
-                <span className="text-zinc-500 font-medium">Sales on Hold (12-day hold):</span>
+                <span className="text-zinc-500 font-medium">Sales on Hold (13-16d hold):</span>
                 <span className="font-extrabold text-zinc-800">£{pendingCash.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-xs">
@@ -294,13 +295,24 @@ export default function DashboardHome({ vendor, sales, cashouts, tradeIns, onNav
               Commission calculations, current statuses, and availability tracking
             </p>
           </div>
-          <button
-            id="btn-quick-payout"
-            onClick={() => onNavigate('payouts')}
-            className="text-xs text-blue-600 hover:text-blue-700 font-bold flex items-center gap-1 focus:outline-none"
-          >
-            Cash Out / Trade-In Manager <ArrowUpRight className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              id="btn-dash-download-pdf"
+              onClick={() => downloadVendorClearedBalancePDF(vendor, sales, cashouts)}
+              className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-900 text-xs font-bold rounded-lg transition-all border border-zinc-200 flex items-center gap-1.5 shadow-2xs"
+              title="Download PDF report of sold cards and cleared balance"
+            >
+              <Download className="w-3.5 h-3.5 text-blue-600" />
+              <span>Download PDF</span>
+            </button>
+            <button
+              id="btn-quick-payout"
+              onClick={() => onNavigate('payouts')}
+              className="text-xs text-blue-600 hover:text-blue-700 font-bold flex items-center gap-1 focus:outline-none"
+            >
+              Cash Out / Trade-In Manager <ArrowUpRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
         {vendorSales.length === 0 ? (
@@ -397,7 +409,7 @@ export default function DashboardHome({ vendor, sales, cashouts, tradeIns, onNav
         <ShieldCheck className="w-5 h-5 text-zinc-400 shrink-0 mt-0.5" />
         <div className="text-xs text-zinc-500 space-y-1">
           <p className="font-bold text-zinc-600">Secure Newton's Ledger Rules</p>
-          <p>Sales are permanently logged with timestamps. All sales mature 12 days after the sale date before becoming available for cash payouts. This protects business cash flow if card trade-ins are executed instead of standard cash sales.</p>
+          <p>Sales are permanently logged with timestamps. Newton's Collectables pays out on Fridays: Wednesday sales clear 16 days later, and Saturday sales 13 days later. This protects business cash flow if card trade-ins are executed instead of standard cash sales.</p>
         </div>
       </div>
     </div>

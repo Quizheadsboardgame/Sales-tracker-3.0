@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Users, Percent, PercentIcon, DollarSign, Coins, TrendingUp, Check, X, RefreshCw, Edit2, Plus, Sparkles, AlertCircle, Search, Calendar, Trash2 } from 'lucide-react';
+import { ShieldCheck, Users, Percent, PercentIcon, DollarSign, Coins, TrendingUp, Check, X, RefreshCw, Edit2, Plus, Sparkles, AlertCircle, Search, Calendar, Trash2, Download, FileText } from 'lucide-react';
 import { Vendor, Sale, CashoutRequest, TradeIn } from '../types';
 import { isSaleMature, getRemainingDays } from '../payoutUtils';
+import { downloadVendorClearedBalancePDF } from '../pdfUtils';
 
 interface MasterControlProps {
   vendors: Vendor[];
@@ -533,14 +534,24 @@ export default function MasterControl({
                 </div>
 
                 <div className="flex flex-col gap-1.5 shrink-0 items-end">
-                  <button
-                    id={`btn-edit-vendor-${v.id}`}
-                    onClick={() => handleStartEdit(v)}
-                    className="p-2 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-600 rounded-lg transition-all cursor-pointer"
-                    title="Edit Vendor Configuration"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      id={`btn-pdf-vendor-${v.id}`}
+                      onClick={() => downloadVendorClearedBalancePDF(v, sales, cashouts)}
+                      className="p-2 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-blue-600 rounded-lg transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold"
+                      title="Download Vendor Cleared Balance & Sales PDF Statement"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      id={`btn-edit-vendor-${v.id}`}
+                      onClick={() => handleStartEdit(v)}
+                      className="p-2 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-600 rounded-lg transition-all cursor-pointer"
+                      title="Edit Vendor Configuration"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                  </div>
                   {onViewVendorProfile && (
                     <button
                       id={`btn-view-vendor-profile-${v.id}`}
