@@ -813,7 +813,7 @@ app.post("/api/cashouts", (req, res) => {
     status: "pending"
   };
 
-  // Find all un-cashedout, eligible sales for this vendor using the new dynamic Friday payout rule
+  // Find all un-cashedout, eligible sales for this vendor that are mature (12-day hold rule)
   let taggedSalesCount = 0;
   state.sales.forEach((sale) => {
     if (

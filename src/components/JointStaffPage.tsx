@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ShoppingBag, Search, Plus, Check, CheckCircle2, RefreshCw, Sparkles, UserCheck, Calendar, Trash2, Edit2, X, TrendingUp, Coins, BarChart3, ChevronDown, ChevronUp } from 'lucide-react';
 import { StockItem, Vendor, Sale, CashoutRequest, TradeIn } from '../types';
-import { isSaleMature } from '../payoutUtils';
+import { isSaleMature, getRemainingDays } from '../payoutUtils';
 
 interface JointStaffPageProps {
   vendors: Vendor[];
@@ -1111,6 +1111,9 @@ export default function JointStaffPage({
               todaySales.map((sale) => {
                 const vendorObj = vendors.find(v => v.id === sale.vendorId);
                 const vendorColor = vendorObj?.color || '#64748B';
+                const isMature = isSaleMature(sale.date);
+                const daysLeft = getRemainingDays(sale.date);
+
                 return (
                   <div
                     key={sale.id}
@@ -1125,9 +1128,21 @@ export default function JointStaffPage({
                         <span className="w-2 h-2 rounded-full border border-black/10 shrink-0" style={{ backgroundColor: vendorColor }} />
                         Owner: {sale.vendorName.split(' ')[0]}
                       </span>
-                      <span className="text-[9px] font-medium text-zinc-400 block pt-0.5">
-                        {new Date(sale.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                      <div className="flex items-center gap-1.5 pt-0.5">
+                        <span className="text-[9px] font-medium text-zinc-400">
+                          {new Date(sale.date).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <span className="text-zinc-300 text-[9px]">•</span>
+                        {isMature ? (
+                          <span className="text-[8px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.2 rounded">
+                            Mature
+                          </span>
+                        ) : (
+                          <span className="text-[8px] font-bold text-blue-700 bg-blue-50 border border-blue-200/60 px-1.5 py-0.2 rounded">
+                            {daysLeft === 1 ? '1 day left' : `${daysLeft} days left`}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="text-right flex flex-col items-end gap-1.5">
                       <span className="text-sm font-extrabold text-zinc-900 block">

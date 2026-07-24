@@ -16,7 +16,7 @@ export default function DashboardHome({ vendor, sales, cashouts, tradeIns, onNav
   const vendorSales = sales.filter((s) => s.vendorId === vendor.id);
 
   // Time calculations based on dynamic payout maturation
-  const now = new Date("2026-07-14T06:28:56-07:00"); // current local time injected
+  const now = new Date();
 
   // Today's Sales (Wednesday or Saturday are busy market days!)
   const todaySales = vendorSales.filter((s) => {
@@ -221,7 +221,7 @@ export default function DashboardHome({ vendor, sales, cashouts, tradeIns, onNav
             </span>
             <div className="space-y-2.5">
               <div className="flex justify-between text-xs">
-                <span className="text-zinc-500 font-medium">Sales on Hold (13-16d hold):</span>
+                <span className="text-zinc-500 font-medium">Sales on Hold (12-day hold):</span>
                 <span className="font-extrabold text-zinc-800">£{pendingCash.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-xs">
@@ -374,12 +374,12 @@ export default function DashboardHome({ vendor, sales, cashouts, tradeIns, onNav
                             Payout Pending
                           </span>
                         ) : isMature ? (
-                          <span className="inline-flex items-center gap-1 text-[9px] font-bold text-blue-600 bg-blue-50 border border-blue-200/40 px-2.5 py-0.5 rounded" title={`Payout date: ${payoutDateObj.toLocaleDateString('en-GB')}`}>
-                            Ready
+                          <span className="inline-flex items-center gap-1 text-[9px] font-bold text-blue-600 bg-blue-50 border border-blue-200/40 px-2.5 py-0.5 rounded" title={`Mature since: ${payoutDateObj.toLocaleDateString('en-GB')}`}>
+                            Ready (Mature)
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[9px] font-bold text-zinc-500 bg-zinc-100 border border-zinc-200/40 px-2.5 py-0.5 rounded" title={`Payout date: ${payoutDateObj.toLocaleDateString('en-GB')}`}>
-                            Matures in {daysRemaining}d (Fri)
+                          <span className="inline-flex items-center gap-1 text-[9px] font-bold text-zinc-600 bg-zinc-100 border border-zinc-200/60 px-2.5 py-0.5 rounded" title={`Matures on: ${payoutDateObj.toLocaleDateString('en-GB')}`}>
+                            {daysRemaining === 1 ? '1 day left' : `${daysRemaining} days left`}
                           </span>
                         )}
                       </td>
@@ -397,7 +397,7 @@ export default function DashboardHome({ vendor, sales, cashouts, tradeIns, onNav
         <ShieldCheck className="w-5 h-5 text-zinc-400 shrink-0 mt-0.5" />
         <div className="text-xs text-zinc-500 space-y-1">
           <p className="font-bold text-zinc-600">Secure Newton's Ledger Rules</p>
-          <p>Sales are permanently logged with timestamps. Payouts are made on Fridays: Wednesday sales are paid 16 days later, and Saturday sales 13 days later. This protects business cash flow if card trade-ins are executed instead of standard cash sales.</p>
+          <p>Sales are permanently logged with timestamps. All sales mature 12 days after the sale date before becoming available for cash payouts. This protects business cash flow if card trade-ins are executed instead of standard cash sales.</p>
         </div>
       </div>
     </div>

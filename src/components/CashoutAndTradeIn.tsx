@@ -39,7 +39,7 @@ export default function CashoutAndTradeIn({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Math for Payout Maturation
-  const now = new Date("2026-07-14T06:28:56-07:00");
+  const now = new Date();
 
   const vendorSales = sales.filter((s) => s.vendorId === vendor.id);
 
@@ -210,7 +210,7 @@ export default function CashoutAndTradeIn({
           <div className="space-y-6">
             <div className="space-y-1">
               <h3 className="text-base font-black text-zinc-950 tracking-tight">Withdraw Mature Stall Funds</h3>
-              <p className="text-xs text-zinc-500 font-medium">Newton's Collectables pays out on Fridays: Wednesday sales are paid 16 days later, and Saturday sales 13 days later. This protects business cash flow if card trade-ins are executed instead of cash sales.</p>
+              <p className="text-xs text-zinc-500 font-medium">All sales mature 12 days after the sale date before becoming eligible for payout. This protects business cash flow if card trade-ins are executed instead of cash sales.</p>
             </div>
 
             {/* Quick cashout calculator */}

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ShieldCheck, Users, Percent, PercentIcon, DollarSign, Coins, TrendingUp, Check, X, RefreshCw, Edit2, Plus, Sparkles, AlertCircle, Search, Calendar, Trash2 } from 'lucide-react';
 import { Vendor, Sale, CashoutRequest, TradeIn } from '../types';
+import { isSaleMature, getRemainingDays } from '../payoutUtils';
 
 interface MasterControlProps {
   vendors: Vendor[];
@@ -744,6 +745,7 @@ export default function MasterControl({
                       <th className="py-3 px-4 text-right">Price (£)</th>
                       <th className="py-3 px-4 text-right">Commission</th>
                       <th className="py-3 px-4 text-right">Earnings</th>
+                      <th className="py-3 px-4 text-center">Payout Maturity</th>
                       <th className="py-3 px-4 text-center">Actions</th>
                     </tr>
                   </thead>
@@ -777,6 +779,38 @@ export default function MasterControl({
                         <td className="py-3.5 px-4 text-right font-black text-zinc-900">£{sale.price.toFixed(2)}</td>
                         <td className="py-3.5 px-4 text-right text-red-600 font-semibold">-£{sale.commissionAmount.toFixed(2)}</td>
                         <td className="py-3.5 px-4 text-right text-emerald-600 font-bold">£{sale.vendorEarnings.toFixed(2)}</td>
+                        <td className="py-3.5 px-4 text-center">
+                          {(() => {
+                            const isMature = isSaleMature(sale.date);
+                            const daysLeft = getRemainingDays(sale.date);
+                            if (sale.cashedOut) {
+                              return (
+                                <span className="inline-flex items-center text-[9px] font-bold text-green-700 bg-green-50 border border-green-200/50 px-2 py-0.5 rounded">
+                                  Paid Out
+                                </span>
+                              );
+                            }
+                            if (sale.cashoutRequestId) {
+                              return (
+                                <span className="inline-flex items-center text-[9px] font-bold text-amber-700 bg-amber-50 border border-amber-200/50 px-2 py-0.5 rounded">
+                                  Pending Cashout
+                                </span>
+                              );
+                            }
+                            if (isMature) {
+                              return (
+                                <span className="inline-flex items-center text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/50 px-2 py-0.5 rounded">
+                                  Mature
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="inline-flex items-center text-[9px] font-bold text-blue-700 bg-blue-50 border border-blue-200/50 px-2 py-0.5 rounded">
+                                {daysLeft === 1 ? '1 day left' : `${daysLeft} days left`}
+                              </span>
+                            );
+                          })()}
+                        </td>
                         <td className="py-3.5 px-4">
                           <div className="flex items-center justify-center gap-2">
                             {deletingSaleId === sale.id ? (
