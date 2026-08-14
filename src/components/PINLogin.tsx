@@ -32,9 +32,12 @@ export default function PINLogin({ onLogin, error, loading }: PINLoginProps) {
     <div className="flex flex-col items-center justify-center min-h-[80vh] px-4">
       <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-zinc-200 p-8 flex flex-col items-center">
         {/* Stall Header branding in Geometric Balance style */}
-        <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-2xl shadow-sm mb-4">
-          N
-        </div>
+        <img 
+          src="https://i.ibb.co/ycn6KSLq/Untitled-28-June-2026-at-01-21-42-3.png" 
+          alt="Newton's Collectables" 
+          className="w-14 h-14 object-contain rounded-xl shadow-xs mb-3"
+          referrerPolicy="no-referrer"
+        />
         
         <h1 className="text-sm font-bold tracking-wider text-zinc-900 uppercase text-center leading-tight">
           NEWTONS

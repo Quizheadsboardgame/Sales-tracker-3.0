@@ -1253,14 +1253,13 @@ export default function App() {
             
             {/* Logo */}
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-xs">
-                N
-              </div>
-              <div>
-                <h1 className="font-bold text-sm leading-tight text-zinc-900 tracking-wide uppercase">Newtons</h1>
-                <p className="text-[10px] text-zinc-400 tracking-widest uppercase font-medium">Collectables</p>
-              </div>
-              <div className="hidden sm:flex items-center gap-1.5 ml-4 px-2.5 py-1 bg-zinc-100 border border-zinc-200 rounded text-[10px] text-zinc-500 font-bold tracking-wide">
+              <img 
+                src="https://i.ibb.co/ycn6KSLq/Untitled-28-June-2026-at-01-21-42-3.png" 
+                alt="Newton's Collectables" 
+                className="h-11 w-auto max-w-[180px] object-contain"
+                referrerPolicy="no-referrer"
+              />
+              <div className="hidden sm:flex items-center gap-1.5 ml-2 px-2.5 py-1 bg-zinc-100 border border-zinc-200 rounded text-[10px] text-zinc-500 font-bold tracking-wide">
                 <MapPin className="w-3 h-3 text-zinc-400" /> Bury St Edmunds • <Calendar className="w-3 h-3 text-zinc-400" /> Wed & Sat
               </div>
             </div>

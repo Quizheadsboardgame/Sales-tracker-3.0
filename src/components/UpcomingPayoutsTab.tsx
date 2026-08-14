@@ -30,7 +30,7 @@ import {
   calculateVendorBalances,
   getWeekOfYear
 } from '../payoutUtils';
-import { downloadVendorClearedBalancePDF } from '../pdfUtils';
+import { downloadVendorClearedBalancePDF, downloadStandaloneWeeklyVendorPayoutPDF } from '../pdfUtils';
 
 interface UpcomingPayoutsTabProps {
   vendors: Vendor[];
@@ -488,7 +488,7 @@ export default function UpcomingPayoutsTab({
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between sm:justify-end gap-4">
+                    <div className="flex items-center justify-between sm:justify-end gap-3">
                       <div className="text-right">
                         <span className="text-xs font-extrabold text-zinc-400 block uppercase tracking-widest">
                           Payout Total Due
@@ -497,6 +497,31 @@ export default function UpcomingPayoutsTab({
                           £{group.totalEarnings.toFixed(2)}
                         </span>
                       </div>
+
+                      {/* Standalone Payout PDF Download Button for this Week */}
+                      <button
+                        type="button"
+                        id={`btn-standalone-pdf-group-wk-${group.weekNumber}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          vendorList.forEach(({ vendor }) => {
+                            const vendorSalesForWeek = group.sales.filter((s) => s.vendorId === vendor.id);
+                            downloadStandaloneWeeklyVendorPayoutPDF({
+                              vendor,
+                              weekNumber: group.weekNumber,
+                              payoutDate: group.payoutDate,
+                              formattedPayoutDate: group.formattedDate,
+                              sales: vendorSalesForWeek,
+                            });
+                          });
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-white rounded-lg text-xs font-black transition-all shadow-2xs cursor-pointer active:scale-95"
+                        title={`Download standalone Week ${group.weekNumber} payout PDF for vendor(s)`}
+                      >
+                        <FileText className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="hidden sm:inline">Week {group.weekNumber} PDF</span>
+                        <span className="sm:hidden">PDF</span>
+                      </button>
 
                       <button
                         type="button"
@@ -524,6 +549,27 @@ export default function UpcomingPayoutsTab({
                         <span>{vendor.name}:</span>
                         <span className="text-blue-600 font-extrabold">£{earnings.toFixed(2)}</span>
                         <span className="text-[10px] font-normal text-zinc-400">({count})</span>
+
+                        <button
+                          type="button"
+                          id={`btn-standalone-pdf-wk-${group.weekNumber}-vendor-${vendor.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const vendorSalesForWeek = group.sales.filter((s) => s.vendorId === vendor.id);
+                            downloadStandaloneWeeklyVendorPayoutPDF({
+                              vendor,
+                              weekNumber: group.weekNumber,
+                              payoutDate: group.payoutDate,
+                              formattedPayoutDate: group.formattedDate,
+                              sales: vendorSalesForWeek,
+                            });
+                          }}
+                          className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded text-[10px] font-bold transition-all cursor-pointer hover:shadow-2xs"
+                          title={`Download standalone Week ${group.weekNumber} payout PDF for ${vendor.name} (Contains no info about other weeks)`}
+                        >
+                          <Download className="w-2.5 h-2.5 text-blue-600" />
+                          <span>PDF</span>
+                        </button>
                       </div>
                     ))}
                   </div>
