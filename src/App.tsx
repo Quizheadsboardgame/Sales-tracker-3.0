@@ -1247,8 +1247,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col font-sans">
-      {/* Premium Header Branding in Geometric Balance theme */}
-      <header className="bg-white border-b border-zinc-200 sticky top-0 z-40 shadow-xs">
+      {/* Premium Header Branding with Pink Background */}
+      <header className="bg-pink-100 border-b border-pink-200 sticky top-0 z-40 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             
@@ -1260,9 +1260,6 @@ export default function App() {
                 className="h-11 w-auto max-w-[180px] object-contain"
                 referrerPolicy="no-referrer"
               />
-              <div className="hidden sm:flex items-center gap-1.5 ml-2 px-2.5 py-1 bg-zinc-100 border border-zinc-200 rounded text-[10px] text-zinc-500 font-bold tracking-wide">
-                <MapPin className="w-3 h-3 text-zinc-400" /> Bury St Edmunds • <Calendar className="w-3 h-3 text-zinc-400" /> Wed & Sat
-              </div>
             </div>
 
             {/* Desktop Navigation Links */}
@@ -1274,8 +1271,8 @@ export default function App() {
                     onClick={() => setActiveTab('home')}
                     className={`px-3 py-2 rounded-md transition-all ${
                       activeTab === 'home' 
-                        ? 'bg-zinc-100 text-blue-600 font-bold' 
-                        : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                        ? 'bg-white text-pink-700 shadow-xs font-bold' 
+                        : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
                     }`}
                   >
                     Dashboard
@@ -1285,8 +1282,8 @@ export default function App() {
                     onClick={() => setActiveTab('stock')}
                     className={`px-3 py-2 rounded-md transition-all ${
                       activeTab === 'stock' 
-                        ? 'bg-zinc-100 text-blue-600 font-bold' 
-                        : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                        ? 'bg-white text-pink-700 shadow-xs font-bold' 
+                        : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
                     }`}
                   >
                     Stock Catalog
@@ -1296,8 +1293,8 @@ export default function App() {
                     onClick={() => setActiveTab('payouts')}
                     className={`px-3 py-2 rounded-md transition-all ${
                       activeTab === 'payouts' 
-                        ? 'bg-zinc-100 text-blue-600 font-bold' 
-                        : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                        ? 'bg-white text-pink-700 shadow-xs font-bold' 
+                        : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
                     }`}
                   >
                     Payout & Trade-In
@@ -1311,56 +1308,43 @@ export default function App() {
                 onClick={() => setActiveTab('staff')}
                 className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
                   activeTab === 'staff' 
-                    ? 'bg-blue-50 text-blue-600 font-bold border border-blue-100/60' 
-                    : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                    ? 'bg-white text-blue-700 shadow-xs font-bold border border-blue-200' 
+                    : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
                 }`}
               >
                 <ShoppingBag className="w-3.5 h-3.5" /> Joint Register
               </button>
 
-              <button
-                id="nav-tab-staff-tradeins"
-                onClick={() => setActiveTab('staffTradeIns')}
-                className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
-                  activeTab === 'staffTradeIns' 
-                    ? 'bg-purple-50 text-purple-700 font-bold border border-purple-100/60' 
-                    : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
-                }`}
-              >
-                {currentUser ? (
-                  <ArrowLeftRight className="w-3.5 h-3.5" />
-                ) : (
-                  <Lock className="w-3.5 h-3.5 text-purple-500" />
-                )}
-                Real-Time Trade-Ins
-                {!currentUser && (
-                  <span className="text-[9px] bg-purple-100 text-purple-800 px-1.5 py-0.2 rounded font-extrabold uppercase tracking-wide">
-                    Locked
-                  </span>
-                )}
-              </button>
+              {/* Staff Trade-Ins & Upcoming Payouts (Only visible when logged in with 9999 / Master Control) */}
+              {userRole === 'admin' && (
+                <>
+                  <button
+                    id="nav-tab-staff-tradeins"
+                    onClick={() => setActiveTab('staffTradeIns')}
+                    className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
+                      activeTab === 'staffTradeIns' 
+                        ? 'bg-white text-purple-700 shadow-xs font-bold border border-purple-200' 
+                        : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
+                    }`}
+                  >
+                    <ArrowLeftRight className="w-3.5 h-3.5" />
+                    Real-Time Trade-Ins
+                  </button>
 
-              <button
-                id="nav-tab-staff-payouts"
-                onClick={() => setActiveTab('staffPayouts')}
-                className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
-                  activeTab === 'staffPayouts' 
-                    ? 'bg-blue-50 text-blue-600 font-bold border border-blue-100/60' 
-                    : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
-                }`}
-              >
-                {currentUser ? (
-                  <Calendar className="w-3.5 h-3.5" />
-                ) : (
-                  <Lock className="w-3.5 h-3.5 text-amber-500" />
-                )}
-                Upcoming Payouts
-                {!currentUser && (
-                  <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded font-extrabold uppercase tracking-wide">
-                    Locked
-                  </span>
-                )}
-              </button>
+                  <button
+                    id="nav-tab-staff-payouts"
+                    onClick={() => setActiveTab('staffPayouts')}
+                    className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
+                      activeTab === 'staffPayouts' 
+                        ? 'bg-white text-blue-700 shadow-xs font-bold border border-blue-200' 
+                        : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
+                    }`}
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    Upcoming Payouts
+                  </button>
+                </>
+              )}
 
               {/* Newton Master Control */}
               {userRole === 'admin' && (
@@ -1370,7 +1354,7 @@ export default function App() {
                   className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
                     activeTab === 'admin' 
                       ? 'bg-zinc-900 text-white font-bold' 
-                      : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                      : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
                   }`}
                 >
                   <ShieldCheck className="w-3.5 h-3.5 text-blue-500" /> Stall Control
@@ -1384,8 +1368,8 @@ export default function App() {
                   onClick={() => setActiveTab('login')}
                   className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
                     activeTab === 'login' 
-                      ? 'bg-blue-50 text-blue-600 font-bold border border-blue-100/60' 
-                      : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                      ? 'bg-white text-pink-700 shadow-xs font-bold border border-pink-300' 
+                      : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
                   }`}
                 >
                   <ShieldCheck className="w-3.5 h-3.5" /> Vendor Login
@@ -1515,41 +1499,35 @@ export default function App() {
               Joint Staff Register
             </button>
 
-            <button
-              id="mob-tab-staff-tradeins"
-              onClick={() => { setActiveTab('staffTradeIns'); setMobileMenuOpen(false); }}
-              className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left flex items-center justify-between ${
-                activeTab === 'staffTradeIns' ? 'bg-purple-50 text-purple-700 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                {currentUser ? <ArrowLeftRight className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5 text-purple-500" />}
-                Real-Time Trade-Ins Log
-              </span>
-              {!currentUser && (
-                <span className="text-[9px] bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wide">
-                  Staff Only
-                </span>
-              )}
-            </button>
+            {userRole === 'admin' && (
+              <>
+                <button
+                  id="mob-tab-staff-tradeins"
+                  onClick={() => { setActiveTab('staffTradeIns'); setMobileMenuOpen(false); }}
+                  className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left flex items-center justify-between ${
+                    activeTab === 'staffTradeIns' ? 'bg-purple-50 text-purple-700 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <ArrowLeftRight className="w-3.5 h-3.5" />
+                    Real-Time Trade-Ins Log
+                  </span>
+                </button>
 
-            <button
-              id="mob-tab-staff-payouts"
-              onClick={() => { setActiveTab('staffPayouts'); setMobileMenuOpen(false); }}
-              className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left flex items-center justify-between ${
-                activeTab === 'staffPayouts' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                {currentUser ? <Calendar className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5 text-amber-500" />}
-                Upcoming Payouts Totals
-              </span>
-              {!currentUser && (
-                <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wide">
-                  Stall Owner Only
-                </span>
-              )}
-            </button>
+                <button
+                  id="mob-tab-staff-payouts"
+                  onClick={() => { setActiveTab('staffPayouts'); setMobileMenuOpen(false); }}
+                  className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left flex items-center justify-between ${
+                    activeTab === 'staffPayouts' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Calendar className="w-3.5 h-3.5" />
+                    Upcoming Payouts Totals
+                  </span>
+                </button>
+              </>
+            )}
 
             {userRole === 'admin' && (
               <button
