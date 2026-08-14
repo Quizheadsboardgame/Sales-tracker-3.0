@@ -1327,7 +1327,17 @@ export default function App() {
                     : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
                 }`}
               >
-                <ArrowLeftRight className="w-3.5 h-3.5" /> Real-Time Trade-Ins
+                {currentUser ? (
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                ) : (
+                  <Lock className="w-3.5 h-3.5 text-purple-500" />
+                )}
+                Real-Time Trade-Ins
+                {!currentUser && (
+                  <span className="text-[9px] bg-purple-100 text-purple-800 px-1.5 py-0.2 rounded font-extrabold uppercase tracking-wide">
+                    Locked
+                  </span>
+                )}
               </button>
 
               <button
@@ -1508,11 +1518,19 @@ export default function App() {
             <button
               id="mob-tab-staff-tradeins"
               onClick={() => { setActiveTab('staffTradeIns'); setMobileMenuOpen(false); }}
-              className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
+              className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left flex items-center justify-between ${
                 activeTab === 'staffTradeIns' ? 'bg-purple-50 text-purple-700 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
               }`}
             >
-              Real-Time Trade-Ins Log
+              <span className="flex items-center gap-2">
+                {currentUser ? <ArrowLeftRight className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5 text-purple-500" />}
+                Real-Time Trade-Ins Log
+              </span>
+              {!currentUser && (
+                <span className="text-[9px] bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wide">
+                  Staff Only
+                </span>
+              )}
             </button>
 
             <button

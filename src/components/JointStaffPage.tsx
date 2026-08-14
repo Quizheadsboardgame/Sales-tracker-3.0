@@ -530,11 +530,21 @@ export default function JointStaffPage({
                 : 'text-zinc-600 hover:bg-zinc-100'
             }`}
           >
-            <ArrowLeftRight className="w-4 h-4" />
+            {isStallOwnerOrAdmin ? (
+              <ArrowLeftRight className="w-4 h-4" />
+            ) : (
+              <Lock className="w-4 h-4 text-purple-500" />
+            )}
             <span>Real-Time Trade-Ins</span>
-            <span className="bg-purple-100 text-purple-800 text-[10px] font-black px-1.5 py-0.2 rounded-full">
-              {tradeIns.length}
-            </span>
+            {isStallOwnerOrAdmin ? (
+              <span className="bg-purple-100 text-purple-800 text-[10px] font-black px-1.5 py-0.2 rounded-full">
+                {tradeIns.length}
+              </span>
+            ) : (
+              <span className="bg-purple-100 text-purple-800 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                Staff Only
+              </span>
+            )}
           </button>
           <button
             id="btn-staff-tab-payouts"
@@ -563,12 +573,43 @@ export default function JointStaffPage({
 
       {activeSubTab === 'tradeIns' ? (
         <div className="col-span-1 lg:col-span-12">
-          <StaffTradeInsTab
-            vendors={vendors}
-            tradeIns={tradeIns}
-            onAddTradeIn={onAddTradeIn}
-            onViewVendorProfile={onViewVendorProfile}
-          />
+          {isStallOwnerOrAdmin ? (
+            <StaffTradeInsTab
+              vendors={vendors}
+              tradeIns={tradeIns}
+              onAddTradeIn={onAddTradeIn}
+              onViewVendorProfile={onViewVendorProfile}
+            />
+          ) : (
+            <div className="bg-white border border-zinc-200 rounded-2xl p-6 sm:p-8 max-w-md mx-auto shadow-xs text-center animate-in fade-in zoom-in-95 duration-200">
+              <div className="w-12 h-12 bg-purple-50 border border-purple-200 rounded-2xl flex items-center justify-center text-purple-600 mx-auto mb-4">
+                <Lock className="w-6 h-6" />
+              </div>
+              <h3 className="text-sm font-extrabold text-zinc-900 uppercase tracking-wide">
+                Staff / Stall Login Required
+              </h3>
+              <p className="text-xs text-zinc-500 mt-2 mb-6 leading-relaxed">
+                Real-time trade-ins, customer exchange ledgers, and credit allocations are confidential. Please enter your 4-digit Staff / Stall Owner PIN below to unlock the trade-ins desk.
+              </p>
+
+              {onLogin ? (
+                <div className="pt-2 border-t border-zinc-100">
+                  <PINLogin
+                    onLogin={onLogin}
+                    error={loginError || null}
+                    loading={loginLoading || false}
+                    inline={true}
+                    title="Enter Staff / Stall PIN to Unlock"
+                    subtitle="Enter your 4-digit PIN to access real-time trade-ins."
+                  />
+                </div>
+              ) : (
+                <div className="text-xs text-zinc-400 font-medium">
+                  Please log in with your PIN to unlock.
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ) : activeSubTab === 'upcomingPayouts' ? (
         <div className="col-span-1 lg:col-span-12">
