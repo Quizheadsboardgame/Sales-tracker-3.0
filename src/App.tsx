@@ -12,7 +12,8 @@ import {
   Calendar,
   MapPin,
   Menu,
-  X
+  X,
+  Lock
 } from 'lucide-react';
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, collection, onSnapshot, doc, setDoc } from "firebase/firestore";
@@ -1338,7 +1339,17 @@ export default function App() {
                     : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
                 }`}
               >
-                <Calendar className="w-3.5 h-3.5" /> Upcoming Payouts
+                {currentUser ? (
+                  <Calendar className="w-3.5 h-3.5" />
+                ) : (
+                  <Lock className="w-3.5 h-3.5 text-amber-500" />
+                )}
+                Upcoming Payouts
+                {!currentUser && (
+                  <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded font-extrabold uppercase tracking-wide">
+                    Locked
+                  </span>
+                )}
               </button>
 
               {/* Newton Master Control */}
@@ -1507,11 +1518,19 @@ export default function App() {
             <button
               id="mob-tab-staff-payouts"
               onClick={() => { setActiveTab('staffPayouts'); setMobileMenuOpen(false); }}
-              className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
+              className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left flex items-center justify-between ${
                 activeTab === 'staffPayouts' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
               }`}
             >
-              Upcoming Payouts Totals
+              <span className="flex items-center gap-2">
+                {currentUser ? <Calendar className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5 text-amber-500" />}
+                Upcoming Payouts Totals
+              </span>
+              {!currentUser && (
+                <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wide">
+                  Stall Owner Only
+                </span>
+              )}
             </button>
 
             {userRole === 'admin' && (
@@ -1610,6 +1629,9 @@ export default function App() {
             onDeleteSale={handleDeleteSale}
             currentUser={currentUser}
             initialSubTab={activeTab === 'staffTradeIns' ? 'tradeIns' : activeTab === 'staffPayouts' ? 'upcomingPayouts' : 'register'}
+            onLogin={handleLoginSubmit}
+            loginError={pinError}
+            loginLoading={authLoading}
           />
         )}
 

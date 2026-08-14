@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Search, Plus, Check, CheckCircle2, RefreshCw, Sparkles, UserCheck, Calendar, Trash2, Edit2, X, TrendingUp, Coins, BarChart3, ChevronDown, ChevronUp, Download, ArrowLeftRight } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Check, CheckCircle2, RefreshCw, Sparkles, UserCheck, Calendar, Trash2, Edit2, X, TrendingUp, Coins, BarChart3, ChevronDown, ChevronUp, Download, ArrowLeftRight, Lock, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { StockItem, Vendor, Sale, CashoutRequest, TradeIn } from '../types';
 import { isSaleMature, getRemainingDays, calculateVendorBalances } from '../payoutUtils';
 import { downloadVendorClearedBalancePDF } from '../pdfUtils';
 import UpcomingPayoutsTab from './UpcomingPayoutsTab';
 import StaffTradeInsTab from './StaffTradeInsTab';
+import PINLogin from './PINLogin';
 
 interface JointStaffPageProps {
   vendors: Vendor[];
@@ -46,6 +47,9 @@ interface JointStaffPageProps {
   }) => Promise<void>;
   currentUser?: any;
   initialSubTab?: 'register' | 'upcomingPayouts' | 'tradeIns';
+  onLogin?: (pin: string) => Promise<void>;
+  loginError?: string | null;
+  loginLoading?: boolean;
 }
 
 export default function JointStaffPage({ 
@@ -62,7 +66,10 @@ export default function JointStaffPage({
   onDeleteSale,
   onAddTradeIn,
   currentUser,
-  initialSubTab = 'register'
+  initialSubTab = 'register',
+  onLogin,
+  loginError,
+  loginLoading
 }: JointStaffPageProps) {
   const [activeSubTab, setActiveSubTab] = useState<'register' | 'upcomingPayouts' | 'tradeIns'>(initialSubTab);
 
@@ -492,6 +499,9 @@ export default function JointStaffPage({
     overallBalance = calculateConsolidatedBalance(loggedInVendor.id);
   }
 
+  // Check if current active session is a verified Stall Owner or Admin
+  const isStallOwnerOrAdmin = Boolean(currentUser && (userRole === 'vendor' || userRole === 'admin'));
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
       {/* Staff Navigation Sub-Tabs */}
@@ -536,8 +546,17 @@ export default function JointStaffPage({
                 : 'text-zinc-600 hover:bg-zinc-100'
             }`}
           >
-            <Calendar className="w-4 h-4" />
+            {isStallOwnerOrAdmin ? (
+              <Calendar className="w-4 h-4" />
+            ) : (
+              <Lock className="w-4 h-4 text-amber-500" />
+            )}
             <span>Upcoming Payouts Totals</span>
+            {!isStallOwnerOrAdmin && (
+              <span className="bg-amber-100 text-amber-800 text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-wider">
+                Stall Owner
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -553,15 +572,46 @@ export default function JointStaffPage({
         </div>
       ) : activeSubTab === 'upcomingPayouts' ? (
         <div className="col-span-1 lg:col-span-12">
-          <UpcomingPayoutsTab
-            vendors={vendors}
-            sales={sales}
-            cashouts={cashouts}
-            tradeIns={tradeIns}
-            onViewVendorProfile={onViewVendorProfile}
-            onUpdateSale={onUpdateSale}
-            onDeleteSale={onDeleteSale}
-          />
+          {isStallOwnerOrAdmin ? (
+            <UpcomingPayoutsTab
+              vendors={vendors}
+              sales={sales}
+              cashouts={cashouts}
+              tradeIns={tradeIns}
+              onViewVendorProfile={onViewVendorProfile}
+              onUpdateSale={onUpdateSale}
+              onDeleteSale={onDeleteSale}
+            />
+          ) : (
+            <div className="bg-white border border-zinc-200 rounded-2xl p-6 sm:p-8 max-w-md mx-auto shadow-xs text-center animate-in fade-in zoom-in-95 duration-200">
+              <div className="w-12 h-12 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-center text-amber-600 mx-auto mb-4">
+                <Lock className="w-6 h-6" />
+              </div>
+              <h3 className="text-sm font-extrabold text-zinc-900 uppercase tracking-wide">
+                Stall Owner Login Required
+              </h3>
+              <p className="text-xs text-zinc-500 mt-2 mb-6 leading-relaxed">
+                Upcoming payout maturation schedules, gross stall earnings, and Friday settlement totals are confidential. Please enter your 4-digit Stall Owner PIN below to unlock upcoming payouts.
+              </p>
+
+              {onLogin ? (
+                <div className="pt-2 border-t border-zinc-100">
+                  <PINLogin
+                    onLogin={onLogin}
+                    error={loginError || null}
+                    loading={loginLoading || false}
+                    inline={true}
+                    title="Enter Stall Owner PIN to Unlock"
+                    subtitle="Enter your 4-digit personal PIN to view your payouts."
+                  />
+                </div>
+              ) : (
+                <div className="text-xs text-zinc-400 font-medium">
+                  Please log in with your stall PIN to unlock.
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <>

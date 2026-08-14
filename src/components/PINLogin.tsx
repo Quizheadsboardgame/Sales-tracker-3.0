@@ -5,9 +5,12 @@ interface PINLoginProps {
   onLogin: (pin: string) => Promise<void>;
   error: string | null;
   loading: boolean;
+  inline?: boolean;
+  title?: string;
+  subtitle?: string;
 }
 
-export default function PINLogin({ onLogin, error, loading }: PINLoginProps) {
+export default function PINLogin({ onLogin, error, loading, inline = false, title, subtitle }: PINLoginProps) {
   const [pin, setPin] = useState('');
 
   const handleKeyPress = (num: string) => {
@@ -27,6 +30,87 @@ export default function PINLogin({ onLogin, error, loading }: PINLoginProps) {
   const handleClear = () => {
     setPin('');
   };
+
+  if (inline) {
+    return (
+      <div className="w-full flex flex-col items-center">
+        <div className="mt-2 mb-4 text-center">
+          <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2.5">
+            {title || "Enter Stall Owner PIN"}
+          </p>
+          {subtitle && (
+            <p className="text-[11px] text-zinc-400 mb-3 max-w-xs mx-auto">
+              {subtitle}
+            </p>
+          )}
+          <div className="flex justify-center gap-3.5">
+            {[0, 1, 2, 3].map((index) => (
+              <div
+                key={index}
+                className={`w-3.5 h-3.5 rounded-full border-2 transition-all duration-200 ${
+                  pin.length > index
+                    ? 'bg-blue-600 border-blue-600 scale-110 shadow-xs'
+                    : 'border-zinc-300 bg-zinc-50'
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+
+        {error && (
+          <div className="w-full max-w-xs bg-red-50 border border-red-100 text-red-700 text-xs rounded-xl p-2.5 text-center mb-3 font-medium">
+            {error}
+          </div>
+        )}
+
+        {loading && (
+          <div className="text-xs text-zinc-500 font-medium mb-3 flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            Authorizing stall session...
+          </div>
+        )}
+
+        {/* Numeric Keypad */}
+        <div className="grid grid-cols-3 gap-2.5 w-full max-w-[240px] select-none">
+          {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((num) => (
+            <button
+              id={`pin-btn-${num}`}
+              key={num}
+              onClick={() => handleKeyPress(num)}
+              disabled={loading}
+              className="h-12 w-full text-base font-bold text-zinc-800 bg-zinc-100 hover:bg-zinc-200/80 active:bg-zinc-300 rounded-xl flex items-center justify-center transition-all focus:outline-none touch-manipulation select-none cursor-pointer"
+            >
+              {num}
+            </button>
+          ))}
+          <button
+            id="pin-btn-clear"
+            onClick={handleClear}
+            disabled={loading}
+            className="h-12 w-full text-[11px] font-bold text-zinc-400 hover:text-zinc-600 active:bg-zinc-100 rounded-xl flex items-center justify-center transition-colors focus:outline-none touch-manipulation select-none cursor-pointer"
+          >
+            CLEAR
+          </button>
+          <button
+            id="pin-btn-0"
+            onClick={() => handleKeyPress('0')}
+            disabled={loading}
+            className="h-12 w-full text-base font-bold text-zinc-800 bg-zinc-100 hover:bg-zinc-200/80 active:bg-zinc-300 rounded-xl flex items-center justify-center transition-all focus:outline-none touch-manipulation select-none cursor-pointer"
+          >
+            0
+          </button>
+          <button
+            id="pin-btn-del"
+            onClick={handleDelete}
+            disabled={loading}
+            className="h-12 w-full text-[11px] font-bold text-zinc-400 hover:text-zinc-600 active:bg-zinc-100 rounded-xl flex items-center justify-center transition-colors focus:outline-none touch-manipulation select-none cursor-pointer"
+          >
+            DEL
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[80vh] px-4">
