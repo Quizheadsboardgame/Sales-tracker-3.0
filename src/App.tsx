@@ -1245,21 +1245,136 @@ export default function App() {
     ? vendors.find((v) => v.id === adminViewingVendorId)
     : (currentUser ? vendors.find((v) => v.id === currentUser.id) : null);
 
+  // Dynamic Header & Wallpaper Theme resolution
+  // 1. Control Master logged in (userRole === 'admin') -> Black header, matching black wallpaper
+  // 2. Vendor logged in (userRole === 'vendor' && currentUser) -> Vendor's color header, matching tinted wallpaper
+  // 3. No one logged in (!currentUser) -> White header, matching clean white wallpaper
+  const getTheme = () => {
+    if (userRole === 'admin') {
+      return {
+        mode: 'admin' as const,
+        headerBg: '#09090b',
+        headerBorder: 'border-zinc-800',
+        headerStyle: { backgroundColor: '#09090b' },
+        wallpaperStyle: {
+          backgroundColor: '#09090b',
+          backgroundImage: 'radial-gradient(ellipse 80% 50% at 50% -20%, #1c1917 0%, #09090b 100%)',
+          minHeight: '100vh',
+        },
+        containerText: 'text-zinc-100',
+        navActive: 'bg-zinc-800 text-white shadow-xs font-bold border border-zinc-700',
+        navInactive: 'text-zinc-400 hover:bg-zinc-800/80 hover:text-white',
+        roleText: 'text-zinc-400',
+        nameText: 'text-white',
+        logoutBtn: 'p-2 bg-zinc-800 hover:bg-red-500/20 hover:text-red-400 text-zinc-400 rounded-lg transition-colors border border-zinc-700 cursor-pointer',
+        mobileToggle: 'md:hidden p-2 text-zinc-300 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors border border-zinc-700',
+        mobileMenuBg: 'bg-zinc-900 border-zinc-800 text-zinc-100',
+        mobileNavActive: 'bg-zinc-800 text-white font-bold',
+        mobileNavInactive: 'text-zinc-400 hover:bg-zinc-800',
+        logoWrapper: 'p-1 bg-white/10 backdrop-blur rounded-lg',
+      };
+    }
+
+    if (userRole === 'vendor' && currentUser) {
+      const vendorColor = currentUser.color || '#3B82F6';
+      
+      // Determine luminance for dynamic text contrast
+      let isDark = true;
+      try {
+        const hex = vendorColor.replace('#', '');
+        if (hex.length === 6) {
+          const r = parseInt(hex.substring(0, 2), 16) / 255;
+          const g = parseInt(hex.substring(2, 4), 16) / 255;
+          const b = parseInt(hex.substring(4, 6), 16) / 255;
+          const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+          isDark = lum < 0.65;
+        }
+      } catch (e) {
+        isDark = true;
+      }
+
+      return {
+        mode: 'vendor' as const,
+        headerBg: vendorColor,
+        headerBorder: isDark ? 'border-black/15' : 'border-black/10',
+        headerStyle: { backgroundColor: vendorColor },
+        wallpaperStyle: {
+          backgroundColor: '#fafafa',
+          backgroundImage: `radial-gradient(ellipse 90% 60% at 50% 0%, ${vendorColor}18 0%, #f8fafc 80%)`,
+          minHeight: '100vh',
+        },
+        containerText: 'text-zinc-900',
+        navActive: isDark 
+          ? 'bg-white text-zinc-900 shadow-xs font-bold border border-white/40' 
+          : 'bg-zinc-900 text-white shadow-xs font-bold',
+        navInactive: isDark
+          ? 'text-white/90 hover:bg-white/20 hover:text-white'
+          : 'text-zinc-800 hover:bg-black/10 hover:text-zinc-950',
+        roleText: isDark ? 'text-white/75' : 'text-zinc-600',
+        nameText: isDark ? 'text-white' : 'text-zinc-900',
+        logoutBtn: isDark
+          ? 'p-2 bg-black/20 hover:bg-red-500/80 hover:text-white text-white rounded-lg transition-colors border border-white/20 cursor-pointer'
+          : 'p-2 bg-white/60 hover:bg-red-50 hover:text-red-600 text-zinc-700 rounded-lg transition-colors border border-black/10 cursor-pointer',
+        mobileToggle: isDark
+          ? 'md:hidden p-2 text-white bg-black/20 hover:bg-black/30 rounded-lg transition-colors border border-white/20'
+          : 'md:hidden p-2 text-zinc-800 bg-white/60 hover:bg-white/90 rounded-lg transition-colors border border-black/10',
+        mobileMenuBg: 'bg-white border-zinc-200 text-zinc-900',
+        mobileNavActive: 'bg-zinc-100 text-zinc-900 font-bold',
+        mobileNavInactive: 'text-zinc-600 hover:bg-zinc-50',
+        logoWrapper: isDark ? 'p-1 bg-white/15 backdrop-blur rounded-lg' : '',
+      };
+    }
+
+    // No one logged in -> White header and clean white wallpaper
+    return {
+      mode: 'guest' as const,
+      headerBg: '#ffffff',
+      headerBorder: 'border-zinc-200',
+      headerStyle: { backgroundColor: '#ffffff' },
+      wallpaperStyle: {
+        backgroundColor: '#ffffff',
+        backgroundImage: 'none',
+        minHeight: '100vh',
+      },
+      containerText: 'text-zinc-900',
+      navActive: 'bg-zinc-900 text-white font-bold shadow-xs',
+      navInactive: 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900',
+      roleText: 'text-zinc-400',
+      nameText: 'text-zinc-900',
+      logoutBtn: 'p-2 bg-zinc-50 hover:bg-red-50 hover:text-red-600 text-zinc-400 rounded-lg transition-colors border border-zinc-200/40 cursor-pointer',
+      mobileToggle: 'md:hidden p-2 text-zinc-600 bg-zinc-50 hover:bg-zinc-100 rounded-lg transition-colors border border-zinc-200/50',
+      mobileMenuBg: 'bg-white border-zinc-200 text-zinc-900',
+      mobileNavActive: 'bg-zinc-100 text-blue-600 font-bold',
+      mobileNavInactive: 'text-zinc-500 hover:bg-zinc-50',
+      logoWrapper: '',
+    };
+  };
+
+  const theme = getTheme();
+
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 flex flex-col font-sans">
-      {/* Premium Header Branding with Pink Background */}
-      <header className="bg-pink-100 border-b border-pink-200 sticky top-0 z-40 shadow-xs">
+    <div 
+      className={`min-h-screen ${theme.containerText} flex flex-col font-sans transition-colors duration-300`}
+      style={theme.wallpaperStyle}
+    >
+      {/* Dynamic Header Branding */}
+      <header 
+        className={`border-b ${theme.headerBorder} sticky top-0 z-40 shadow-xs transition-colors duration-300`}
+        style={theme.headerStyle}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             
             {/* Logo */}
             <div className="flex items-center gap-3">
-              <img 
-                src="https://i.ibb.co/ycn6KSLq/Untitled-28-June-2026-at-01-21-42-3.png" 
-                alt="Newton's Collectables" 
-                className="h-11 w-auto max-w-[180px] object-contain"
-                referrerPolicy="no-referrer"
-              />
+              <div className={theme.logoWrapper}>
+                <img 
+                  src="https://i.ibb.co/ycn6KSLq/Untitled-28-June-2026-at-01-21-42-3.png" 
+                  alt="Newton's Collectables" 
+                  className="h-11 w-auto max-w-[180px] object-contain"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
             </div>
 
             {/* Desktop Navigation Links */}
@@ -1271,8 +1386,8 @@ export default function App() {
                     onClick={() => setActiveTab('home')}
                     className={`px-3 py-2 rounded-md transition-all ${
                       activeTab === 'home' 
-                        ? 'bg-white text-pink-700 shadow-xs font-bold' 
-                        : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
+                        ? theme.navActive 
+                        : theme.navInactive
                     }`}
                   >
                     Dashboard
@@ -1282,8 +1397,8 @@ export default function App() {
                     onClick={() => setActiveTab('stock')}
                     className={`px-3 py-2 rounded-md transition-all ${
                       activeTab === 'stock' 
-                        ? 'bg-white text-pink-700 shadow-xs font-bold' 
-                        : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
+                        ? theme.navActive 
+                        : theme.navInactive
                     }`}
                   >
                     Stock Catalog
@@ -1293,8 +1408,8 @@ export default function App() {
                     onClick={() => setActiveTab('payouts')}
                     className={`px-3 py-2 rounded-md transition-all ${
                       activeTab === 'payouts' 
-                        ? 'bg-white text-pink-700 shadow-xs font-bold' 
-                        : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
+                        ? theme.navActive 
+                        : theme.navInactive
                     }`}
                   >
                     Payout & Trade-In
@@ -1308,8 +1423,8 @@ export default function App() {
                 onClick={() => setActiveTab('staff')}
                 className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
                   activeTab === 'staff' 
-                    ? 'bg-white text-blue-700 shadow-xs font-bold border border-blue-200' 
-                    : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
+                    ? theme.navActive 
+                    : theme.navInactive
                 }`}
               >
                 <ShoppingBag className="w-3.5 h-3.5" /> Joint Register
@@ -1323,8 +1438,8 @@ export default function App() {
                     onClick={() => setActiveTab('staffTradeIns')}
                     className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
                       activeTab === 'staffTradeIns' 
-                        ? 'bg-white text-purple-700 shadow-xs font-bold border border-purple-200' 
-                        : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
+                        ? theme.navActive 
+                        : theme.navInactive
                     }`}
                   >
                     <ArrowLeftRight className="w-3.5 h-3.5" />
@@ -1336,8 +1451,8 @@ export default function App() {
                     onClick={() => setActiveTab('staffPayouts')}
                     className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
                       activeTab === 'staffPayouts' 
-                        ? 'bg-white text-blue-700 shadow-xs font-bold border border-blue-200' 
-                        : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
+                        ? theme.navActive 
+                        : theme.navInactive
                     }`}
                   >
                     <Calendar className="w-3.5 h-3.5" />
@@ -1353,8 +1468,8 @@ export default function App() {
                   onClick={() => setActiveTab('admin')}
                   className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
                     activeTab === 'admin' 
-                      ? 'bg-zinc-900 text-white font-bold' 
-                      : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
+                      ? theme.navActive 
+                      : theme.navInactive
                   }`}
                 >
                   <ShieldCheck className="w-3.5 h-3.5 text-blue-500" /> Stall Control
@@ -1368,8 +1483,8 @@ export default function App() {
                   onClick={() => setActiveTab('login')}
                   className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
                     activeTab === 'login' 
-                      ? 'bg-white text-pink-700 shadow-xs font-bold border border-pink-300' 
-                      : 'text-zinc-700 hover:bg-pink-200/70 hover:text-zinc-900'
+                      ? theme.navActive 
+                      : theme.navInactive
                   }`}
                 >
                   <ShieldCheck className="w-3.5 h-3.5" /> Vendor Login
@@ -1382,17 +1497,17 @@ export default function App() {
               {currentUser ? (
                 <div className="hidden md:flex items-center gap-3">
                   <div className="text-right">
-                    <span className="text-xs font-bold text-zinc-900 block leading-tight">
+                    <span className={`text-xs font-bold block leading-tight ${theme.nameText}`}>
                       {currentUser.name.split(' ')[0]}
                     </span>
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mt-0.5">
+                    <span className={`text-[10px] font-bold uppercase tracking-widest block mt-0.5 ${theme.roleText}`}>
                       {userRole === 'admin' ? 'Stall Master' : 'Vendor'}
                     </span>
                   </div>
                   <button
                     id="btn-logout-desktop"
                     onClick={handleLogout}
-                    className="p-2 bg-zinc-50 hover:bg-red-50 hover:text-red-600 text-zinc-400 rounded-lg transition-colors focus:outline-none border border-zinc-200/40 cursor-pointer"
+                    className={theme.logoutBtn}
                     title="Log Out Securely"
                   >
                     <LogOut className="w-4 h-4" />
@@ -1405,7 +1520,7 @@ export default function App() {
                     onClick={() => setActiveTab('login')}
                     className={`px-4 py-2 text-xs font-bold rounded-lg border transition-all flex items-center gap-2 cursor-pointer ${
                       activeTab === 'login'
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                        ? 'bg-zinc-900 text-white border-zinc-900 shadow-xs'
                         : 'bg-white text-zinc-700 border-zinc-200 hover:border-zinc-300'
                     }`}
                   >
@@ -1418,7 +1533,7 @@ export default function App() {
               <button
                 id="btn-toggle-mobile-menu"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden p-2 text-zinc-600 bg-zinc-50 hover:bg-zinc-100 rounded-lg transition-colors focus:outline-none border border-zinc-200/50"
+                className={theme.mobileToggle}
               >
                 {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
               </button>
@@ -1428,12 +1543,12 @@ export default function App() {
 
         {/* Mobile menu collapsible */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-zinc-200 bg-white px-4 py-3 space-y-2 shadow-inner">
+          <div className={`md:hidden border-t px-4 py-3 space-y-2 shadow-inner ${theme.mobileMenuBg}`}>
             {currentUser ? (
-              <div className="pb-2 mb-2 border-b border-zinc-100 flex justify-between items-center text-xs">
+              <div className="pb-2 mb-2 border-b border-zinc-200/50 flex justify-between items-center text-xs">
                 <div>
-                  <p className="font-bold text-zinc-900">{currentUser.name}</p>
-                  <p className="text-[10px] text-zinc-400 font-semibold uppercase tracking-wider">{userRole === 'admin' ? 'Newton Control' : 'Pokemon Vendor'}</p>
+                  <p className="font-bold">{currentUser.name}</p>
+                  <p className="text-[10px] opacity-70 font-semibold uppercase tracking-wider">{userRole === 'admin' ? 'Newton Control' : 'Pokemon Vendor'}</p>
                 </div>
                 <button
                   onClick={handleLogout}
@@ -1443,10 +1558,10 @@ export default function App() {
                 </button>
               </div>
             ) : (
-              <div className="pb-2 mb-2 border-b border-zinc-100 flex justify-between items-center text-xs">
+              <div className="pb-2 mb-2 border-b border-zinc-200/50 flex justify-between items-center text-xs">
                 <div>
-                  <p className="font-bold text-zinc-900">Guest User</p>
-                  <p className="text-[10px] text-zinc-400 font-semibold uppercase tracking-wider">Joint Register Mode</p>
+                  <p className="font-bold">Guest User</p>
+                  <p className="text-[10px] opacity-70 font-semibold uppercase tracking-wider">Joint Register Mode</p>
                 </div>
                 <button
                   onClick={() => { setActiveTab('login'); setMobileMenuOpen(false); }}
@@ -1463,7 +1578,7 @@ export default function App() {
                   id="mob-tab-home"
                   onClick={() => { setActiveTab('home'); setMobileMenuOpen(false); }}
                   className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
-                    activeTab === 'home' ? 'bg-zinc-100 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+                    activeTab === 'home' ? theme.mobileNavActive : theme.mobileNavInactive
                   }`}
                 >
                   Dashboard Home
@@ -1472,7 +1587,7 @@ export default function App() {
                   id="mob-tab-stock"
                   onClick={() => { setActiveTab('stock'); setMobileMenuOpen(false); }}
                   className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
-                    activeTab === 'stock' ? 'bg-zinc-100 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+                    activeTab === 'stock' ? theme.mobileNavActive : theme.mobileNavInactive
                   }`}
                 >
                   Stock Catalog
@@ -1481,7 +1596,7 @@ export default function App() {
                   id="mob-tab-payouts"
                   onClick={() => { setActiveTab('payouts'); setMobileMenuOpen(false); }}
                   className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
-                    activeTab === 'payouts' ? 'bg-zinc-100 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+                    activeTab === 'payouts' ? theme.mobileNavActive : theme.mobileNavInactive
                   }`}
                 >
                   Payout & Trade-In
@@ -1493,7 +1608,7 @@ export default function App() {
               id="mob-tab-staff"
               onClick={() => { setActiveTab('staff'); setMobileMenuOpen(false); }}
               className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
-                activeTab === 'staff' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+                activeTab === 'staff' ? theme.mobileNavActive : theme.mobileNavInactive
               }`}
             >
               Joint Staff Register
@@ -1505,7 +1620,7 @@ export default function App() {
                   id="mob-tab-staff-tradeins"
                   onClick={() => { setActiveTab('staffTradeIns'); setMobileMenuOpen(false); }}
                   className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left flex items-center justify-between ${
-                    activeTab === 'staffTradeIns' ? 'bg-purple-50 text-purple-700 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+                    activeTab === 'staffTradeIns' ? theme.mobileNavActive : theme.mobileNavInactive
                   }`}
                 >
                   <span className="flex items-center gap-2">
@@ -1518,7 +1633,7 @@ export default function App() {
                   id="mob-tab-staff-payouts"
                   onClick={() => { setActiveTab('staffPayouts'); setMobileMenuOpen(false); }}
                   className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left flex items-center justify-between ${
-                    activeTab === 'staffPayouts' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+                    activeTab === 'staffPayouts' ? theme.mobileNavActive : theme.mobileNavInactive
                   }`}
                 >
                   <span className="flex items-center gap-2">
@@ -1534,7 +1649,7 @@ export default function App() {
                 id="mob-tab-admin"
                 onClick={() => { setActiveTab('admin'); setMobileMenuOpen(false); }}
                 className={`w-full py-2.5 px-4 rounded-md text-xs font-bold text-left block ${
-                  activeTab === 'admin' ? 'bg-zinc-900 text-white' : 'text-zinc-500'
+                  activeTab === 'admin' ? theme.mobileNavActive : theme.mobileNavInactive
                 }`}
               >
                 Stall Control
@@ -1546,7 +1661,7 @@ export default function App() {
                 id="mob-tab-login"
                 onClick={() => { setActiveTab('login'); setMobileMenuOpen(false); }}
                 className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
-                  activeTab === 'login' ? 'bg-zinc-100 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+                  activeTab === 'login' ? theme.mobileNavActive : theme.mobileNavInactive
                 }`}
               >
                 Log In (Vendor / Stall Control)
