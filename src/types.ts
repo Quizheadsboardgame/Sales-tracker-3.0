@@ -71,6 +71,34 @@ export interface TradeIn {
   date: string;
 }
 
+export interface RaffleEntry {
+  id: string;
+  name: string;
+  ticketCount: number;
+  dateAdded: string;
+  ticketRangeStart: number;
+  ticketRangeEnd: number;
+  phoneOrNote?: string;
+}
+
+export interface RaffleWinner {
+  prizeRank: number; // 1 = 1st, 2 = 2nd, etc.
+  prizeLabel?: string;
+  name: string;
+  ticketNumber: number;
+  entryId: string;
+  totalTicketsHeld: number;
+}
+
+export interface RaffleDrawResult {
+  id: string;
+  date: string;
+  totalTickets: number;
+  totalParticipants: number;
+  prizeCount: number;
+  winners: RaffleWinner[];
+}
+
 export interface AppState {
   vendors: Vendor[];
   stock: StockItem[];
@@ -78,4 +106,6 @@ export interface AppState {
   trades: TradeProposal[];
   cashouts: CashoutRequest[];
   tradeIns: TradeIn[];
+  raffleEntries?: RaffleEntry[];
+  raffleHistory?: RaffleDrawResult[];
 }

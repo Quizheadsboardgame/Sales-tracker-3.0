@@ -13,12 +13,13 @@ import {
   MapPin,
   Menu,
   X,
-  Lock
+  Lock,
+  Ticket
 } from 'lucide-react';
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore, collection, onSnapshot, doc, setDoc } from "firebase/firestore";
 import firebaseConfig from "../firebase-applet-config.json";
-import { Vendor, StockItem, Sale, TradeProposal, CashoutRequest, TradeIn } from './types';
+import { Vendor, StockItem, Sale, TradeProposal, CashoutRequest, TradeIn, RaffleEntry, RaffleWinner, RaffleDrawResult } from './types';
 import { isSaleMature, calculateVendorBalances } from './payoutUtils';
 import PINLogin from './components/PINLogin';
 import DashboardHome from './components/DashboardHome';
@@ -26,6 +27,7 @@ import JointStaffPage from './components/JointStaffPage';
 import StockManager from './components/StockManager';
 import CashoutAndTradeIn from './components/CashoutAndTradeIn';
 import MasterControl from './components/MasterControl';
+import { RaffleDrawTab } from './components/RaffleDrawTab';
 
 // Initialize Firebase Client SDK for direct real-time updates on all platforms (including mobile phones)
 let db: any = null;
@@ -47,6 +49,8 @@ export default function App() {
   const [trades, setTrades] = useState<TradeProposal[]>([]);
   const [cashouts, setCashouts] = useState<CashoutRequest[]>([]);
   const [tradeIns, setTradeIns] = useState<TradeIn[]>([]);
+  const [raffleEntries, setRaffleEntries] = useState<RaffleEntry[]>([]);
+  const [raffleHistory, setRaffleHistory] = useState<RaffleDrawResult[]>([]);
 
   // Session States
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -83,6 +87,8 @@ export default function App() {
           setTrades(data.trades || []);
           setCashouts(data.cashouts || []);
           setTradeIns(data.tradeIns || []);
+          setRaffleEntries(data.raffleEntries || []);
+          setRaffleHistory(data.raffleHistory || []);
           setLastSynced(new Date());
           setSyncError(null); // Clear errors on successful connection
         } else {
@@ -138,6 +144,8 @@ export default function App() {
               else if (key === "trades") setTrades(val);
               else if (key === "cashouts") setCashouts(val);
               else if (key === "tradeIns") setTradeIns(val);
+              else if (key === "raffleEntries") setRaffleEntries(val);
+              else if (key === "raffleHistory") setRaffleHistory(val);
               updatedKeys.add(key);
             }
           });
@@ -1228,6 +1236,181 @@ export default function App() {
     await refreshAppState();
   };
 
+  // Raffle Handlers
+  const handleAddRaffleEntry = async (entryData: { name: string; ticketCount: number; phoneOrNote?: string }) => {
+    if (db) {
+      try {
+        const updatedEntries = [...raffleEntries];
+        const currentTotal = updatedEntries.reduce((sum, e) => sum + (e.ticketCount || 0), 0);
+        const count = Number(entryData.ticketCount) || 1;
+        const newEntry: RaffleEntry = {
+          id: "raffle_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+          name: entryData.name.trim(),
+          ticketCount: count,
+          dateAdded: new Date().toISOString(),
+          ticketRangeStart: currentTotal + 1,
+          ticketRangeEnd: currentTotal + count,
+          phoneOrNote: entryData.phoneOrNote
+        };
+        updatedEntries.push(newEntry);
+        setRaffleEntries(updatedEntries);
+        await setDoc(doc(db, "marketState", "raffleEntries"), { data: updatedEntries });
+        return;
+      } catch (err) {
+        console.warn("Direct Firestore write failed for raffle entry, falling back to REST:", err);
+      }
+    }
+
+    const res = await fetch('/api/raffle/entries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entryData)
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to add raffle entry");
+    }
+    await refreshAppState();
+  };
+
+  const handleDeleteRaffleEntry = async (entryId: string) => {
+    if (db) {
+      try {
+        let updatedEntries = raffleEntries.filter(e => e.id !== entryId);
+        let running = 0;
+        updatedEntries = updatedEntries.map(e => {
+          const start = running + 1;
+          const end = running + e.ticketCount;
+          running += e.ticketCount;
+          return { ...e, ticketRangeStart: start, ticketRangeEnd: end };
+        });
+        setRaffleEntries(updatedEntries);
+        await setDoc(doc(db, "marketState", "raffleEntries"), { data: updatedEntries });
+        return;
+      } catch (err) {
+        console.warn("Direct Firestore write failed for raffle delete, falling back to REST:", err);
+      }
+    }
+
+    const res = await fetch(`/api/raffle/entries/${entryId}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      throw new Error("Failed to delete raffle entry");
+    }
+    await refreshAppState();
+  };
+
+  const handleUpdateRaffleEntry = async (entryId: string, name: string, ticketCount: number) => {
+    if (db) {
+      try {
+        let updatedEntries = raffleEntries.map(e => {
+          if (e.id === entryId) {
+            return { ...e, name, ticketCount };
+          }
+          return e;
+        });
+        let running = 0;
+        updatedEntries = updatedEntries.map(e => {
+          const start = running + 1;
+          const end = running + e.ticketCount;
+          running += e.ticketCount;
+          return { ...e, ticketRangeStart: start, ticketRangeEnd: end };
+        });
+        setRaffleEntries(updatedEntries);
+        await setDoc(doc(db, "marketState", "raffleEntries"), { data: updatedEntries });
+        return;
+      } catch (err) {
+        console.warn("Direct Firestore write failed for raffle update, falling back to REST:", err);
+      }
+    }
+
+    const res = await fetch(`/api/raffle/entries/${entryId}/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, ticketCount })
+    });
+    if (!res.ok) {
+      throw new Error("Failed to update raffle entry");
+    }
+    await refreshAppState();
+  };
+
+  const handleClearRaffleEntries = async () => {
+    if (db) {
+      try {
+        setRaffleEntries([]);
+        await setDoc(doc(db, "marketState", "raffleEntries"), { data: [] });
+        return;
+      } catch (err) {
+        console.warn("Direct Firestore write failed for raffle clear, falling back to REST:", err);
+      }
+    }
+
+    const res = await fetch('/api/raffle/clear', { method: 'POST' });
+    if (!res.ok) {
+      throw new Error("Failed to clear raffle entries");
+    }
+    await refreshAppState();
+  };
+
+  const handleSaveRaffleResult = async (resultData: {
+    totalTickets: number;
+    totalParticipants: number;
+    prizeCount: number;
+    winners: RaffleWinner[];
+  }) => {
+    if (db) {
+      try {
+        const newResult: RaffleDrawResult = {
+          id: "draw_" + Date.now(),
+          date: new Date().toISOString(),
+          totalTickets: resultData.totalTickets,
+          totalParticipants: resultData.totalParticipants,
+          prizeCount: resultData.prizeCount,
+          winners: resultData.winners
+        };
+        const updatedHistory = [newResult, ...raffleHistory].slice(0, 30);
+        setRaffleHistory(updatedHistory);
+        await setDoc(doc(db, "marketState", "raffleHistory"), { data: updatedHistory });
+        return;
+      } catch (err) {
+        console.warn("Direct Firestore write failed for raffle history, falling back to REST:", err);
+      }
+    }
+
+    const res = await fetch('/api/raffle/history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(resultData)
+    });
+    if (!res.ok) {
+      throw new Error("Failed to save raffle result");
+    }
+    await refreshAppState();
+  };
+
+  const handleDeleteRaffleHistory = async (historyId: string) => {
+    if (db) {
+      try {
+        const updatedHistory = raffleHistory.filter(h => h.id !== historyId);
+        setRaffleHistory(updatedHistory);
+        await setDoc(doc(db, "marketState", "raffleHistory"), { data: updatedHistory });
+        return;
+      } catch (err) {
+        console.warn("Direct Firestore write failed for raffle history delete, falling back to REST:", err);
+      }
+    }
+
+    const res = await fetch(`/api/raffle/history/${historyId}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      throw new Error("Failed to delete raffle history item");
+    }
+    await refreshAppState();
+  };
+
   // Main UI render logic
   if (isLoadingState) {
     return (
@@ -1458,6 +1641,19 @@ export default function App() {
                     <Calendar className="w-3.5 h-3.5" />
                     Upcoming Payouts
                   </button>
+
+                  <button
+                    id="nav-tab-raffle"
+                    onClick={() => setActiveTab('raffle')}
+                    className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
+                      activeTab === 'raffle' 
+                        ? theme.navActive 
+                        : theme.navInactive
+                    }`}
+                  >
+                    <Ticket className="w-3.5 h-3.5 text-amber-400" />
+                    Raffle Draw
+                  </button>
                 </>
               )}
 
@@ -1641,6 +1837,19 @@ export default function App() {
                     Upcoming Payouts Totals
                   </span>
                 </button>
+
+                <button
+                  id="mob-tab-raffle"
+                  onClick={() => { setActiveTab('raffle'); setMobileMenuOpen(false); }}
+                  className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left flex items-center justify-between ${
+                    activeTab === 'raffle' ? theme.mobileNavActive : theme.mobileNavInactive
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Ticket className="w-3.5 h-3.5 text-amber-400" />
+                    Raffle Draw
+                  </span>
+                </button>
               </>
             )}
 
@@ -1782,6 +1991,19 @@ export default function App() {
               setAdminViewingVendorId(vendorId);
               setActiveTab('home');
             }}
+          />
+        )}
+
+        {userRole === 'admin' && activeTab === 'raffle' && (
+          <RaffleDrawTab
+            entries={raffleEntries}
+            history={raffleHistory}
+            onAddEntry={handleAddRaffleEntry}
+            onDeleteEntry={handleDeleteRaffleEntry}
+            onUpdateEntry={handleUpdateRaffleEntry}
+            onClearEntries={handleClearRaffleEntries}
+            onSaveDrawResult={handleSaveRaffleResult}
+            onDeleteHistoryItem={handleDeleteRaffleHistory}
           />
         )}
 

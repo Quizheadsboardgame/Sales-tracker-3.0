@@ -31,7 +31,9 @@ const DEFAULT_STATE: AppState = {
   sales: [],
   trades: [],
   cashouts: [],
-  tradeIns: []
+  tradeIns: [],
+  raffleEntries: [],
+  raffleHistory: []
 };
 
 // Database state in-memory cache
@@ -165,7 +167,7 @@ const saveState = async () => {
     if (db) {
       try {
         const batch = writeBatch(db);
-        const keys: (keyof AppState)[] = ["vendors", "stock", "sales", "trades", "cashouts", "tradeIns"];
+        const keys: (keyof AppState)[] = ["vendors", "stock", "sales", "trades", "cashouts", "tradeIns", "raffleEntries", "raffleHistory"];
         const collectionRef = collection(db, "marketState");
         keys.forEach((key) => {
           const docRef = doc(collectionRef, key);
@@ -211,7 +213,7 @@ const initializeDatabase = async () => {
       loadState();
       // Seed Firestore
       const batch = writeBatch(db);
-      const keys: (keyof AppState)[] = ["vendors", "stock", "sales", "trades", "cashouts", "tradeIns"];
+      const keys: (keyof AppState)[] = ["vendors", "stock", "sales", "trades", "cashouts", "tradeIns", "raffleEntries", "raffleHistory"];
       keys.forEach((key) => {
         const docRef = doc(collectionRef, key);
         batch.set(docRef, { data: state[key] || [] });
@@ -1086,6 +1088,147 @@ app.post("/api/admin/sales/:id/delete", (req, res) => {
   state.sales.splice(saleIndex, 1);
   saveState();
   res.json({ success: true, sales: state.sales, stock: state.stock });
+});
+
+// -----------------------------------------------------------------------------
+// RAFFLE DRAW ENDPOINTS
+// -----------------------------------------------------------------------------
+
+// Add / Update Raffle Entry
+app.post("/api/raffle/entries", (req, res) => {
+  const { name, ticketCount, phoneOrNote } = req.body;
+  if (!name || !name.trim()) {
+    res.status(400).json({ error: "Participant name is required" });
+    return;
+  }
+  const count = Number(ticketCount);
+  if (isNaN(count) || count <= 0) {
+    res.status(400).json({ error: "Ticket count must be at least 1" });
+    return;
+  }
+
+  if (!state.raffleEntries) {
+    state.raffleEntries = [];
+  }
+
+  // Calculate current total tickets to assign ticket numbers
+  const currentTotal = state.raffleEntries.reduce((sum, e) => sum + (e.ticketCount || 0), 0);
+  const startNum = currentTotal + 1;
+  const endNum = currentTotal + count;
+
+  const newEntry: any = {
+    id: "raffle_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+    name: name.trim(),
+    ticketCount: count,
+    dateAdded: new Date().toISOString(),
+    ticketRangeStart: startNum,
+    ticketRangeEnd: endNum,
+    phoneOrNote: phoneOrNote ? phoneOrNote.trim() : undefined
+  };
+
+  state.raffleEntries.push(newEntry);
+  saveState();
+  res.json({ success: true, entry: newEntry, entries: state.raffleEntries });
+});
+
+// Delete Raffle Entry
+app.delete("/api/raffle/entries/:id", (req, res) => {
+  const { id } = req.params;
+  if (!state.raffleEntries) {
+    state.raffleEntries = [];
+  }
+
+  state.raffleEntries = state.raffleEntries.filter(e => e.id !== id);
+
+  // Recalculate ticket ranges
+  let running = 0;
+  state.raffleEntries.forEach(e => {
+    e.ticketRangeStart = running + 1;
+    e.ticketRangeEnd = running + e.ticketCount;
+    running += e.ticketCount;
+  });
+
+  saveState();
+  res.json({ success: true, entries: state.raffleEntries });
+});
+
+// Update Raffle Entry Ticket Count
+app.post("/api/raffle/entries/:id/update", (req, res) => {
+  const { id } = req.params;
+  const { name, ticketCount } = req.body;
+
+  if (!state.raffleEntries) {
+    state.raffleEntries = [];
+  }
+
+  const entry = state.raffleEntries.find(e => e.id === id);
+  if (!entry) {
+    res.status(404).json({ error: "Raffle entry not found" });
+    return;
+  }
+
+  if (name && name.trim()) entry.name = name.trim();
+  if (ticketCount && Number(ticketCount) > 0) entry.ticketCount = Number(ticketCount);
+
+  // Recalculate ticket ranges
+  let running = 0;
+  state.raffleEntries.forEach(e => {
+    e.ticketRangeStart = running + 1;
+    e.ticketRangeEnd = running + e.ticketCount;
+    running += e.ticketCount;
+  });
+
+  saveState();
+  res.json({ success: true, entries: state.raffleEntries });
+});
+
+// Clear All Current Raffle Entries
+app.post("/api/raffle/clear", (req, res) => {
+  state.raffleEntries = [];
+  saveState();
+  res.json({ success: true, entries: [] });
+});
+
+// Record Completed Raffle Draw Result in History
+app.post("/api/raffle/history", (req, res) => {
+  const { totalTickets, totalParticipants, prizeCount, winners } = req.body;
+  if (!winners || !Array.isArray(winners) || winners.length === 0) {
+    res.status(400).json({ error: "Winners list is required" });
+    return;
+  }
+
+  if (!state.raffleHistory) {
+    state.raffleHistory = [];
+  }
+
+  const result: any = {
+    id: "draw_" + Date.now(),
+    date: new Date().toISOString(),
+    totalTickets: Number(totalTickets) || 0,
+    totalParticipants: Number(totalParticipants) || 0,
+    prizeCount: Number(prizeCount) || winners.length,
+    winners
+  };
+
+  state.raffleHistory.unshift(result);
+  // Keep last 30 raffle draw histories
+  if (state.raffleHistory.length > 30) {
+    state.raffleHistory = state.raffleHistory.slice(0, 30);
+  }
+
+  saveState();
+  res.json({ success: true, result, history: state.raffleHistory });
+});
+
+// Delete Raffle History Item
+app.delete("/api/raffle/history/:id", (req, res) => {
+  const { id } = req.params;
+  if (!state.raffleHistory) {
+    state.raffleHistory = [];
+  }
+  state.raffleHistory = state.raffleHistory.filter(h => h.id !== id);
+  saveState();
+  res.json({ success: true, history: state.raffleHistory });
 });
 
 
