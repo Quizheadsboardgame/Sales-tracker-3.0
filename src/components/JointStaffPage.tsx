@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingBag, Search, Plus, Check, CheckCircle2, RefreshCw, Sparkles, UserCheck, Calendar, Trash2, Edit2, X, TrendingUp, Coins, BarChart3, ChevronDown, ChevronUp, Download } from 'lucide-react';
+import { ShoppingBag, Search, Plus, Check, CheckCircle2, RefreshCw, Sparkles, UserCheck, Calendar, Trash2, Edit2, X, TrendingUp, Coins, BarChart3, ChevronDown, ChevronUp, Download, ArrowLeftRight } from 'lucide-react';
 import { StockItem, Vendor, Sale, CashoutRequest, TradeIn } from '../types';
 import { isSaleMature, getRemainingDays, calculateVendorBalances } from '../payoutUtils';
 import { downloadVendorClearedBalancePDF } from '../pdfUtils';
+import UpcomingPayoutsTab from './UpcomingPayoutsTab';
+import StaffTradeInsTab from './StaffTradeInsTab';
 
 interface JointStaffPageProps {
   vendors: Vendor[];
@@ -36,7 +38,14 @@ interface JointStaffPageProps {
     date: string;
   }) => Promise<void>;
   onDeleteSale?: (saleId: string) => Promise<void>;
+  onAddTradeIn?: (tradeInData: {
+    vendorId: string;
+    details: string;
+    estimatedValue: number;
+    creditApplied: number;
+  }) => Promise<void>;
   currentUser?: any;
+  initialSubTab?: 'register' | 'upcomingPayouts' | 'tradeIns';
 }
 
 export default function JointStaffPage({ 
@@ -51,8 +60,17 @@ export default function JointStaffPage({
   onViewVendorProfile,
   onUpdateSale,
   onDeleteSale,
-  currentUser
+  onAddTradeIn,
+  currentUser,
+  initialSubTab = 'register'
 }: JointStaffPageProps) {
+  const [activeSubTab, setActiveSubTab] = useState<'register' | 'upcomingPayouts' | 'tradeIns'>(initialSubTab);
+
+  useEffect(() => {
+    if (initialSubTab) {
+      setActiveSubTab(initialSubTab);
+    }
+  }, [initialSubTab]);
   const getVendorColorEmoji = (color?: string): string => {
     if (!color) return '⚪';
     const hex = color.toUpperCase();
@@ -476,7 +494,76 @@ export default function JointStaffPage({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-      {/* Logged in vendor own stats banner (full width) */}
+      {/* Staff Navigation Sub-Tabs */}
+      <div className="col-span-1 lg:col-span-12 flex items-center justify-between bg-white border border-zinc-200 rounded-xl p-2 shadow-xs">
+        <div className="flex items-center gap-2">
+          <button
+            id="btn-staff-tab-register"
+            type="button"
+            onClick={() => setActiveSubTab('register')}
+            className={`px-4 py-2 text-xs font-extrabold rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
+              activeSubTab === 'register'
+                ? 'bg-zinc-900 text-white shadow-xs'
+                : 'text-zinc-600 hover:bg-zinc-100'
+            }`}
+          >
+            <ShoppingBag className="w-4 h-4" />
+            <span>Joint Register & Log Sales</span>
+          </button>
+          <button
+            id="btn-staff-tab-tradeins"
+            type="button"
+            onClick={() => setActiveSubTab('tradeIns')}
+            className={`px-4 py-2 text-xs font-extrabold rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
+              activeSubTab === 'tradeIns'
+                ? 'bg-purple-600 text-white shadow-xs'
+                : 'text-zinc-600 hover:bg-zinc-100'
+            }`}
+          >
+            <ArrowLeftRight className="w-4 h-4" />
+            <span>Real-Time Trade-Ins</span>
+            <span className="bg-purple-100 text-purple-800 text-[10px] font-black px-1.5 py-0.2 rounded-full">
+              {tradeIns.length}
+            </span>
+          </button>
+          <button
+            id="btn-staff-tab-payouts"
+            type="button"
+            onClick={() => setActiveSubTab('upcomingPayouts')}
+            className={`px-4 py-2 text-xs font-extrabold rounded-lg transition-all cursor-pointer flex items-center gap-2 ${
+              activeSubTab === 'upcomingPayouts'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-zinc-600 hover:bg-zinc-100'
+            }`}
+          >
+            <Calendar className="w-4 h-4" />
+            <span>Upcoming Payouts Totals</span>
+          </button>
+        </div>
+      </div>
+
+      {activeSubTab === 'tradeIns' ? (
+        <div className="col-span-1 lg:col-span-12">
+          <StaffTradeInsTab
+            vendors={vendors}
+            tradeIns={tradeIns}
+            onAddTradeIn={onAddTradeIn}
+            onViewVendorProfile={onViewVendorProfile}
+          />
+        </div>
+      ) : activeSubTab === 'upcomingPayouts' ? (
+        <div className="col-span-1 lg:col-span-12">
+          <UpcomingPayoutsTab
+            vendors={vendors}
+            sales={sales}
+            cashouts={cashouts}
+            tradeIns={tradeIns}
+            onViewVendorProfile={onViewVendorProfile}
+          />
+        </div>
+      ) : (
+        <>
+          {/* Logged in vendor own stats banner (full width) */}
       {loggedInVendor && (
         <div className="col-span-1 lg:col-span-12 bg-white border border-zinc-200 rounded-xl p-5 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-zinc-100 mb-4">
@@ -1198,6 +1285,8 @@ export default function JointStaffPage({
           </div>
         )}
       </div>
+        </>
+      )}
 
       {/* Edit Sale Modal Dialog */}
       {editingSaleId !== null && (

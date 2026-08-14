@@ -1318,6 +1318,30 @@ export default function App() {
                 <ShoppingBag className="w-3.5 h-3.5" /> Joint Register
               </button>
 
+              <button
+                id="nav-tab-staff-tradeins"
+                onClick={() => setActiveTab('staffTradeIns')}
+                className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
+                  activeTab === 'staffTradeIns' 
+                    ? 'bg-purple-50 text-purple-700 font-bold border border-purple-100/60' 
+                    : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                }`}
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5" /> Real-Time Trade-Ins
+              </button>
+
+              <button
+                id="nav-tab-staff-payouts"
+                onClick={() => setActiveTab('staffPayouts')}
+                className={`px-3 py-2 rounded-md transition-all flex items-center gap-1.5 ${
+                  activeTab === 'staffPayouts' 
+                    ? 'bg-blue-50 text-blue-600 font-bold border border-blue-100/60' 
+                    : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-900'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" /> Upcoming Payouts
+              </button>
+
               {/* Newton Master Control */}
               {userRole === 'admin' && (
                 <button
@@ -1471,6 +1495,26 @@ export default function App() {
               Joint Staff Register
             </button>
 
+            <button
+              id="mob-tab-staff-tradeins"
+              onClick={() => { setActiveTab('staffTradeIns'); setMobileMenuOpen(false); }}
+              className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
+                activeTab === 'staffTradeIns' ? 'bg-purple-50 text-purple-700 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+              }`}
+            >
+              Real-Time Trade-Ins Log
+            </button>
+
+            <button
+              id="mob-tab-staff-payouts"
+              onClick={() => { setActiveTab('staffPayouts'); setMobileMenuOpen(false); }}
+              className={`w-full py-2 px-3 rounded-md text-xs font-semibold text-left block ${
+                activeTab === 'staffPayouts' ? 'bg-blue-50 text-blue-600 font-bold' : 'text-zinc-500 hover:bg-zinc-50'
+              }`}
+            >
+              Upcoming Payouts Totals
+            </button>
+
             {userRole === 'admin' && (
               <button
                 id="mob-tab-admin"
@@ -1548,7 +1592,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'staff' && (
+        {(activeTab === 'staff' || activeTab === 'staffPayouts' || activeTab === 'staffTradeIns') && (
           <JointStaffPage
             vendors={vendors}
             stock={stock}
@@ -1556,6 +1600,7 @@ export default function App() {
             cashouts={cashouts}
             tradeIns={tradeIns}
             onLogSale={handleLogSale}
+            onAddTradeIn={handleAddTradeIn}
             userRole={userRole}
             adminViewingVendorId={adminViewingVendorId}
             onViewVendorProfile={(vendorId) => {
@@ -1565,6 +1610,7 @@ export default function App() {
             onUpdateSale={handleUpdateSale}
             onDeleteSale={handleDeleteSale}
             currentUser={currentUser}
+            initialSubTab={activeTab === 'staffTradeIns' ? 'tradeIns' : activeTab === 'staffPayouts' ? 'upcomingPayouts' : 'register'}
           />
         )}
 

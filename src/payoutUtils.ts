@@ -67,6 +67,17 @@ export function getTimeLeftFormatted(saleDateInput: string | Date, nowInput: Dat
   return `${remainingDays} days left`;
 }
 
+/**
+ * Calculates the ISO week number of the year for a given date.
+ */
+export function getWeekOfYear(date: Date = new Date()): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
 export interface VendorBalanceSummary {
   rawClearFunds: number;        // Uncashed mature sales earnings
   rawPendingFunds: number;      // Uncashed non-mature sales earnings

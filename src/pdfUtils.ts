@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Vendor, Sale, CashoutRequest } from './types';
-import { isSaleMature, getRemainingDays, getPayoutDate, calculateVendorBalances } from './payoutUtils';
+import { isSaleMature, getRemainingDays, getPayoutDate, calculateVendorBalances, getWeekOfYear } from './payoutUtils';
 
 export function downloadVendorClearedBalancePDF(
   vendor: Vendor,
@@ -15,6 +15,7 @@ export function downloadVendorClearedBalancePDF(
     format: 'a4',
   });
 
+  const currentWeek = getWeekOfYear(now);
   const vendorSales = sales.filter((s) => s.vendorId === vendor.id);
 
   // Mature / Cleared sales (not cashed out, no cashout request pending, mature based on Friday payout rule)
@@ -52,11 +53,11 @@ export function downloadVendorClearedBalancePDF(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(161, 161, 170); // zinc-400
-  doc.text("Vendor Cleared Balance & Card Sales Statement", 14, 21);
+  doc.text(`Vendor Cleared Balance & Card Sales Statement - Week ${currentWeek} (${now.getFullYear()})`, 14, 21);
 
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(8);
-  doc.text(`Generated: ${statementDate}`, 196, 13, { align: 'right' });
+  doc.text(`Generated: ${statementDate} (Wk ${currentWeek})`, 196, 13, { align: 'right' });
   doc.text(`Vendor: ${vendor.name}`, 196, 21, { align: 'right' });
 
   let currentY = 38;
@@ -186,7 +187,9 @@ export function downloadVendorClearedBalancePDF(
       minute: '2-digit',
     });
     const daysLeft = getRemainingDays(sale.date, now);
-    const clearDate = getPayoutDate(sale.date).toLocaleDateString('en-GB', {
+    const payoutDate = getPayoutDate(sale.date);
+    const payoutWeek = getWeekOfYear(payoutDate);
+    const clearDate = payoutDate.toLocaleDateString('en-GB', {
       day: '2-digit',
       month: 'short',
     });
@@ -197,7 +200,7 @@ export function downloadVendorClearedBalancePDF(
       `£${sale.price.toFixed(2)}`,
       `-£${sale.commissionAmount.toFixed(2)}`,
       `£${sale.vendorEarnings.toFixed(2)}`,
-      `Clears ${clearDate} (${daysLeft}d left)`,
+      `Clears ${clearDate} (Wk ${payoutWeek}, ${daysLeft}d left)`,
     ];
   });
 
@@ -288,7 +291,7 @@ export function downloadVendorClearedBalancePDF(
     doc.setTextColor(161, 161, 170);
 
     doc.text(
-      "Official statement generated from Newton's Collectables Stall Ledger. Sales clear on Friday payout days (Wed sales: 16 days, Sat sales: 13 days).",
+      `Official statement generated from Newton's Collectables Stall Ledger (Week ${currentWeek}, ${now.getFullYear()}). Sales clear on Friday payout days (Wed sales: 16 days, Sat sales: 13 days).`,
       14,
       288
     );
@@ -297,5 +300,5 @@ export function downloadVendorClearedBalancePDF(
 
   const sanitizedVendorName = vendor.name.replace(/[^a-zA-Z0-9_-]/g, '_');
   const dateStr = now.toISOString().slice(0, 10);
-  doc.save(`Newton_Collectables_Cleared_Balance_${sanitizedVendorName}_${dateStr}.pdf`);
+  doc.save(`Newton_Collectables_Cleared_Balance_${sanitizedVendorName}_Week${currentWeek}_${dateStr}.pdf`);
 }
