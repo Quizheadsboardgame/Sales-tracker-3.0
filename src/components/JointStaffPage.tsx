@@ -559,6 +559,8 @@ export default function JointStaffPage({
             cashouts={cashouts}
             tradeIns={tradeIns}
             onViewVendorProfile={onViewVendorProfile}
+            onUpdateSale={onUpdateSale}
+            onDeleteSale={onDeleteSale}
           />
         </div>
       ) : (

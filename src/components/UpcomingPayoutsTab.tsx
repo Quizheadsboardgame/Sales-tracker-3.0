@@ -15,7 +15,11 @@ import {
   ArrowUpRight,
   UserCheck,
   FileText,
-  ShoppingBag
+  ShoppingBag,
+  Edit2,
+  Trash2,
+  X,
+  RefreshCw
 } from 'lucide-react';
 import { Vendor, Sale, CashoutRequest, TradeIn } from '../types';
 import { 
@@ -34,6 +38,13 @@ interface UpcomingPayoutsTabProps {
   cashouts: CashoutRequest[];
   tradeIns: TradeIn[];
   onViewVendorProfile?: (vendorId: string) => void;
+  onUpdateSale?: (saleId: string, saleData: {
+    vendorId: string;
+    itemName: string;
+    price: number;
+    date: string;
+  }) => Promise<void>;
+  onDeleteSale?: (saleId: string) => Promise<void>;
 }
 
 export default function UpcomingPayoutsTab({
@@ -41,12 +52,83 @@ export default function UpcomingPayoutsTab({
   sales,
   cashouts,
   tradeIns,
-  onViewVendorProfile
+  onViewVendorProfile,
+  onUpdateSale,
+  onDeleteSale
 }: UpcomingPayoutsTabProps) {
   const [selectedVendorFilter, setSelectedVendorFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewMode, setViewMode] = useState<'schedule' | 'vendors'>('schedule');
   const [expandedDates, setExpandedDates] = useState<Record<string, boolean>>({});
+
+  // Edit Sale Modal State
+  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
+  const [saleVendorId, setSaleVendorId] = useState<string>('');
+  const [saleItemName, setSaleItemName] = useState<string>('');
+  const [salePrice, setSalePrice] = useState<string>('');
+  const [saleDate, setSaleDate] = useState<string>('');
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [editSuccessMsg, setEditSuccessMsg] = useState<string>('');
+  const [editErrorMsg, setEditErrorMsg] = useState<string>('');
+
+  const handleStartEdit = (sale: Sale) => {
+    setEditingSaleId(sale.id);
+    setSaleVendorId(sale.vendorId);
+    setSaleItemName(sale.itemName);
+    setSalePrice(sale.price.toString());
+    const dateObj = new Date(sale.date);
+    const formattedDate = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+    setSaleDate(formattedDate);
+    setEditErrorMsg('');
+    setEditSuccessMsg('');
+  };
+
+  const handleSaveSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSaleId || !onUpdateSale) return;
+    setIsSaving(true);
+    setEditErrorMsg('');
+    try {
+      const priceNum = Number(salePrice);
+      if (isNaN(priceNum) || priceNum < 0) {
+        setEditErrorMsg('Please enter a valid price.');
+        setIsSaving(false);
+        return;
+      }
+      const isoDate = new Date(saleDate).toISOString();
+      await onUpdateSale(editingSaleId, {
+        vendorId: saleVendorId,
+        itemName: saleItemName.trim(),
+        price: priceNum,
+        date: isoDate
+      });
+      setEditSuccessMsg('Transaction updated! Payout schedule recalculated.');
+      setTimeout(() => {
+        setEditingSaleId(null);
+        setEditSuccessMsg('');
+      }, 1000);
+    } catch (err: any) {
+      setEditErrorMsg(err.message || 'Failed to update transaction.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteSale = async (saleId: string) => {
+    if (!onDeleteSale) return;
+    if (!window.confirm('Are you sure you want to delete this sale record?')) return;
+    setIsDeleting(saleId);
+    try {
+      await onDeleteSale(saleId);
+    } catch (err) {
+      console.error('Failed to delete sale:', err);
+    } finally {
+      setIsDeleting(null);
+    }
+  };
 
   const getVendorColorEmoji = (color?: string): string => {
     if (!color) return '⚪';
@@ -460,7 +542,8 @@ export default function UpcomingPayoutsTab({
                               <th className="pb-2 pr-3">Item Description</th>
                               <th className="pb-2 pr-3 text-right">Sale Price</th>
                               <th className="pb-2 pr-3 text-right">Vendor Net</th>
-                              <th className="pb-2 text-right">Date Sold</th>
+                              <th className="pb-2 pr-3 text-right">Date Sold</th>
+                              <th className="pb-2 text-center">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-zinc-200/60 font-semibold text-zinc-700">
@@ -480,8 +563,39 @@ export default function UpcomingPayoutsTab({
                                   <td className="py-2.5 pr-3 font-medium text-zinc-800">{sale.itemName}</td>
                                   <td className="py-2.5 pr-3 text-right text-zinc-500 font-medium">£{sale.price.toFixed(2)}</td>
                                   <td className="py-2.5 pr-3 text-right font-black text-blue-600">£{sale.vendorEarnings.toFixed(2)}</td>
-                                  <td className="py-2.5 text-right text-zinc-400 text-[11px]">
+                                  <td className="py-2.5 pr-3 text-right text-zinc-400 text-[11px]">
                                     {new Date(sale.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                                  </td>
+                                  <td className="py-2.5 text-center whitespace-nowrap">
+                                    <div className="flex items-center justify-center gap-1">
+                                      {onUpdateSale && (
+                                        <button
+                                          type="button"
+                                          id={`btn-edit-payout-sale-${sale.id}`}
+                                          onClick={() => handleStartEdit(sale)}
+                                          className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md transition-all cursor-pointer"
+                                          title="Edit Price, Date, Vendor or Description"
+                                        >
+                                          <Edit2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
+                                      {onDeleteSale && (
+                                        <button
+                                          type="button"
+                                          id={`btn-delete-payout-sale-${sale.id}`}
+                                          onClick={() => handleDeleteSale(sale.id)}
+                                          disabled={isDeleting === sale.id}
+                                          className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-md transition-all cursor-pointer"
+                                          title="Delete Sale Record"
+                                        >
+                                          {isDeleting === sale.id ? (
+                                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                          ) : (
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          )}
+                                        </button>
+                                      )}
+                                    </div>
                                   </td>
                                 </tr>
                               );
@@ -606,6 +720,156 @@ export default function UpcomingPayoutsTab({
                   ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Sale Modal */}
+      {editingSaleId !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-100">
+          <div className="bg-white rounded-xl shadow-xl border border-zinc-200 w-full max-w-md overflow-hidden text-left">
+            <div className="p-4 border-b border-zinc-200 bg-zinc-50/80 flex justify-between items-center">
+              <div>
+                <h4 className="text-xs font-black text-zinc-900 uppercase tracking-wider flex items-center gap-2">
+                  <Edit2 className="w-4 h-4 text-blue-600" />
+                  Edit Processed Sale
+                </h4>
+                <p className="text-[10px] text-zinc-500 font-medium">
+                  Modifying date or price recalculates the Friday payout schedule automatically.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingSaleId(null)}
+                className="text-zinc-400 hover:text-zinc-600 font-bold p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSale} className="p-5 space-y-4">
+              {editSuccessMsg && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs font-bold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{editSuccessMsg}</span>
+                </div>
+              )}
+
+              {editErrorMsg && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-xs font-bold flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{editErrorMsg}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-wider block mb-1">
+                  Vendor / Stall Owner
+                </label>
+                <select
+                  required
+                  value={saleVendorId}
+                  onChange={(e) => setSaleVendorId(e.target.value)}
+                  className="w-full bg-zinc-50 border border-zinc-200 focus:bg-white text-xs font-bold rounded-lg py-2.5 px-3 outline-none text-zinc-800"
+                >
+                  <option value="">-- Select Vendor --</option>
+                  {vendors.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {getVendorColorEmoji(v.color)} {v.name} (Commission: {(v.commission * 100).toFixed(1)}%)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-wider block mb-1">
+                  Item Description / Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={saleItemName}
+                  onChange={(e) => setSaleItemName(e.target.value)}
+                  className="w-full bg-zinc-50 border border-zinc-200 focus:bg-white text-xs font-semibold rounded-lg py-2.5 px-3 outline-none text-zinc-800"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-wider block mb-1">
+                    Sale Price (£)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    min="0.01"
+                    value={salePrice}
+                    onChange={(e) => setSalePrice(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-200 focus:bg-white text-xs font-black text-blue-600 rounded-lg py-2.5 px-3 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-wider block mb-1">
+                    Sale Date & Time
+                  </label>
+                  <input
+                    type="datetime-local"
+                    required
+                    value={saleDate}
+                    onChange={(e) => setSaleDate(e.target.value)}
+                    className="w-full bg-zinc-50 border border-zinc-200 focus:bg-white text-xs font-bold text-zinc-800 rounded-lg py-2.5 px-3 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Live Friday Payout Recalculation Preview */}
+              {saleDate && !isNaN(new Date(saleDate).getTime()) && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs">
+                  <span className="text-[10px] font-extrabold text-blue-800 uppercase tracking-wider block">
+                    Recalculated Friday Payout Schedule:
+                  </span>
+                  <div className="mt-1 flex items-center justify-between font-bold text-blue-900">
+                    <span>
+                      {getPayoutDate(new Date(saleDate)).toLocaleDateString('en-GB', {
+                        weekday: 'long',
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric'
+                      })}
+                    </span>
+                    <span className="bg-blue-200 text-blue-900 text-[10px] px-2 py-0.5 rounded font-black">
+                      Week {getWeekOfYear(getPayoutDate(new Date(saleDate)))}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-3 border-t border-zinc-200 flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setEditingSaleId(null)}
+                  className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 rounded-lg text-xs font-bold text-zinc-700 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-extrabold transition-all shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isSaving ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving Changes...</span>
+                    </>
+                  ) : (
+                    'Save & Recalculate'
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
