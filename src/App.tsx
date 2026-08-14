@@ -1429,32 +1429,32 @@ export default function App() {
     : (currentUser ? vendors.find((v) => v.id === currentUser.id) : null);
 
   // Dynamic Header & Wallpaper Theme resolution
-  // 1. Control Master logged in (userRole === 'admin') -> Black header, matching black wallpaper
+  // 1. Control Master logged in (userRole === 'admin') -> Royal Burgundy / Maroon header, matching rich deep wine wallpaper
   // 2. Vendor logged in (userRole === 'vendor' && currentUser) -> Vendor's color header, matching tinted wallpaper
   // 3. No one logged in (!currentUser) -> White header, matching clean white wallpaper
   const getTheme = () => {
     if (userRole === 'admin') {
       return {
         mode: 'admin' as const,
-        headerBg: '#09090b',
-        headerBorder: 'border-zinc-800',
-        headerStyle: { backgroundColor: '#09090b' },
+        headerBg: '#7c1d36',
+        headerBorder: 'border-rose-900/40',
+        headerStyle: { backgroundColor: '#7c1d36' },
         wallpaperStyle: {
-          backgroundColor: '#09090b',
-          backgroundImage: 'radial-gradient(ellipse 80% 50% at 50% -20%, #1c1917 0%, #09090b 100%)',
+          backgroundColor: '#20050d',
+          backgroundImage: 'radial-gradient(ellipse 90% 60% at 50% -10%, #7c1d36 0%, #20050d 60%, #120206 100%)',
           minHeight: '100vh',
         },
-        containerText: 'text-zinc-100',
-        navActive: 'bg-zinc-800 text-white shadow-xs font-bold border border-zinc-700',
-        navInactive: 'text-zinc-400 hover:bg-zinc-800/80 hover:text-white',
-        roleText: 'text-zinc-400',
-        nameText: 'text-white',
-        logoutBtn: 'p-2 bg-zinc-800 hover:bg-red-500/20 hover:text-red-400 text-zinc-400 rounded-lg transition-colors border border-zinc-700 cursor-pointer',
-        mobileToggle: 'md:hidden p-2 text-zinc-300 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors border border-zinc-700',
-        mobileMenuBg: 'bg-zinc-900 border-zinc-800 text-zinc-100',
-        mobileNavActive: 'bg-zinc-800 text-white font-bold',
-        mobileNavInactive: 'text-zinc-400 hover:bg-zinc-800',
-        logoWrapper: 'p-1 bg-white/10 backdrop-blur rounded-lg',
+        containerText: 'text-rose-50',
+        navActive: 'bg-white text-rose-950 font-bold shadow-xs border border-white/40',
+        navInactive: 'text-rose-100/90 hover:bg-white/15 hover:text-white',
+        roleText: 'text-rose-200 font-bold',
+        nameText: 'text-white font-black',
+        logoutBtn: 'p-2 bg-black/25 hover:bg-red-500/80 hover:text-white text-rose-100 rounded-lg transition-colors border border-white/20 cursor-pointer',
+        mobileToggle: 'md:hidden p-2 text-white bg-black/25 hover:bg-black/40 rounded-lg transition-colors border border-white/20',
+        mobileMenuBg: 'bg-[#20050d] border-rose-900/50 text-rose-100',
+        mobileNavActive: 'bg-rose-900/80 text-white font-bold',
+        mobileNavInactive: 'text-rose-200 hover:bg-rose-950/60',
+        logoWrapper: 'p-1 bg-white/20 backdrop-blur rounded-lg border border-white/20',
       };
     }
 
@@ -1668,7 +1668,7 @@ export default function App() {
                       : theme.navInactive
                   }`}
                 >
-                  <ShieldCheck className="w-3.5 h-3.5 text-blue-500" /> Stall Control
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-300" /> Stall Control
                 </button>
               )}
 

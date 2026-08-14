@@ -206,8 +206,12 @@ export default function PINLogin({ onLogin, error, loading, inline = false, titl
           Newton Secure Ledger
         </div>
       </div>
-      <p className="text-[11px] text-zinc-400 font-medium mt-6 text-center">
-        Tip: Master Control is <strong className="text-zinc-500">9999</strong>. Log in to register your own vendors.
+      <p className="text-[11px] text-zinc-500 font-medium mt-6 text-center flex items-center justify-center gap-1.5 flex-wrap">
+        <span>Tip: Staff Controller / Master PIN is</span>
+        <span className="px-2 py-0.5 bg-[#7c1d36] text-white text-[10px] font-black rounded-md tracking-wider shadow-xs">
+          9999
+        </span>
+        <span>• Log in to access master controls</span>
       </p>
     </div>
   );

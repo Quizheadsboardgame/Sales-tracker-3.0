@@ -410,21 +410,21 @@ export default function MasterControl({
   return (
     <div className="space-y-6">
       {/* Top Banner admin */}
-      <div className="bg-zinc-900 text-white rounded-xl p-6 shadow-xs relative overflow-hidden border border-zinc-800">
+      <div className="bg-gradient-to-r from-[#7c1d36] via-[#881337] to-[#4c0519] text-white rounded-xl p-6 shadow-md relative overflow-hidden border border-rose-800/40">
         <div className="relative z-10">
-          <span className="bg-blue-600 text-white text-[9px] font-extrabold px-2.5 py-1 rounded uppercase tracking-widest">
-            STALL CONTROL PANEL
+          <span className="bg-amber-400 text-black text-[9px] font-black px-2.5 py-1 rounded uppercase tracking-widest shadow-xs">
+            STALL CONTROLLER PANEL
           </span>
           <h2 className="text-xl font-black mt-2 tracking-tight flex items-center gap-1.5">
-            <ShieldCheck className="w-5 h-5 text-blue-500" />
+            <ShieldCheck className="w-5 h-5 text-amber-300" />
             Newton's Master Control
           </h2>
-          <p className="text-zinc-400 text-xs font-medium mt-1">
+          <p className="text-rose-100/90 text-xs font-medium mt-1">
             Global market oversight for Pokemon vendors, commissions, cashing out, and inventory.
           </p>
         </div>
-        <div className="absolute right-6 top-6 opacity-5 pointer-events-none">
-          <Sparkles className="w-24 h-24 text-zinc-100" />
+        <div className="absolute right-6 top-6 opacity-10 pointer-events-none">
+          <Sparkles className="w-24 h-24 text-rose-100" />
         </div>
       </div>
 
