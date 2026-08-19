@@ -179,6 +179,13 @@ export function DailyRundownTab({
     });
   }, [tradeIns, targetDateObj]);
 
+  // Helper to reliably extract the absolute trade-in value (regardless of sign or field format)
+  const getTradeInAbsoluteValue = (trade: TradeIn): number => {
+    const est = Math.abs(Number(trade.estimatedValue) || 0);
+    const credit = Math.abs(Number(trade.creditApplied) || 0);
+    return est > 0 ? est : credit;
+  };
+
   // Numeric Calculations
   const startingFloat = Number(startingFloatInput) || 0;
   const totalSalesGross = useMemo(() => daySales.reduce((sum, s) => sum + (Number(s.price) || 0), 0), [daySales]);
@@ -186,18 +193,16 @@ export function DailyRundownTab({
   const totalCommissionEarned = useMemo(() => daySales.reduce((sum, s) => sum + (Number(s.commissionAmount) || 0), 0), [daySales]);
   const totalVendorEarnings = useMemo(() => daySales.reduce((sum, s) => sum + (Number(s.vendorEarnings) || 0), 0), [daySales]);
 
-  const totalTradeInsValue = useMemo(() => dayTradeIns.reduce((sum, t) => sum + (Number(t.creditApplied || t.estimatedValue) || 0), 0), [dayTradeIns]);
+  const totalTradeInsValue = useMemo(() => dayTradeIns.reduce((sum, t) => sum + getTradeInAbsoluteValue(t), 0), [dayTradeIns]);
   const totalTradeInsCount = dayTradeIns.length;
 
-  // 1. Cash in Draw (Till Physical Balance) = Float + Sales (Trade-ins NOT in draw)
-  const expectedDrawerBalance = startingFloat + totalSalesGross;
-
-  // 2. Net Stall Total = Draw minus Trade-Ins (Trade-ins is a minus of the total)
-  const netDayTotalAfterTradeIns = expectedDrawerBalance - totalTradeInsValue;
+  // The Total = Starting Float + Gross Sales - Trade-Ins (as trade-ins do not add to cash value)
+  // Example: Float £100 + Sales £500 - Trade-In £200 = Total £400
+  const totalBalance = startingFloat + totalSalesGross - totalTradeInsValue;
   const netDailySales = totalSalesGross - totalTradeInsValue;
 
   const countedCash = countedCashInput.trim() !== '' ? Number(countedCashInput) : null;
-  const drawerVariance = countedCash !== null ? (countedCash - expectedDrawerBalance) : null;
+  const drawerVariance = countedCash !== null ? (countedCash - totalBalance) : null;
 
   // Vendor Breakdown for Selected Date
   const vendorBreakdown = useMemo(() => {
@@ -208,7 +213,7 @@ export function DailyRundownTab({
       const vEarned = vSales.reduce((sum, s) => sum + (Number(s.vendorEarnings) || 0), 0);
 
       const vTrades = dayTradeIns.filter(t => t.vendorId === v.id);
-      const vTradeValue = vTrades.reduce((sum, t) => sum + (Number(t.creditApplied || t.estimatedValue) || 0), 0);
+      const vTradeValue = vTrades.reduce((sum, t) => sum + getTradeInAbsoluteValue(t), 0);
       const vNet = vGross - vTradeValue;
 
       return {
@@ -254,7 +259,7 @@ export function DailyRundownTab({
     });
 
     dayTradeIns.forEach(t => {
-      const val = Number(t.creditApplied || t.estimatedValue) || 0;
+      const val = getTradeInAbsoluteValue(t);
       list.push({
         id: t.id,
         type: 'tradein',
@@ -267,23 +272,16 @@ export function DailyRundownTab({
       });
     });
 
-    // Sort chronologically ascending to calculate running draw balance
+    // Sort chronologically ascending to calculate running total
     list.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    let runningDraw = startingFloat;
-    let runningNet = startingFloat;
+    let runningTotal = startingFloat;
     const withRunning = list.map(item => {
-      if (item.type === 'sale') {
-        runningDraw += item.amount;
-        runningNet += item.amount;
-      } else {
-        // Trade-in is a minus of the total, but physical cash in draw is not reduced
-        runningNet += item.amount; // item.amount is negative
-      }
+      // Sales add to total, trade-ins deduct from total (do not add cash value)
+      runningTotal += item.amount; // item.amount is positive for sales, negative for trade-ins
       return {
         ...item,
-        runningDrawBalance: runningDraw,
-        runningNetBalance: runningNet
+        runningTotalBalance: runningTotal
       };
     });
 
@@ -305,24 +303,21 @@ export function DailyRundownTab({
       `📊 NEWTON'S COLLECTABLES — STALL DAILY RUNDOWN`,
       `📅 Date: ${formattedDateHeadline}`,
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-      `💰 CASH DRAWER (TILL) RECONCILIATION:`,
+      `💰 DAILY CASH RECONCILIATION:`,
       `• Morning Starting Float: £${startingFloat.toFixed(2)}`,
-      `• Total Sales Cash In (+): £${totalSalesGross.toFixed(2)} (${totalSalesCount} items sold)`,
+      `• Gross Sales (+): +£${totalSalesGross.toFixed(2)} (${totalSalesCount} items sold)`,
+      `• Trade-Ins Deducted (-): -£${totalTradeInsValue.toFixed(2)} (${totalTradeInsCount} trades — does not add cash)`,
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-      `⭐ CASH IN DRAW (FLOAT + SALES): £${expectedDrawerBalance.toFixed(2)}`,
-      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-      `🔄 TRADE-INS DEDUCTION (MINUS OF TOTAL):`,
-      `• Total Trade-Ins (-): -£${totalTradeInsValue.toFixed(2)} (${totalTradeInsCount} trades)`,
-      `• Net Stall Total (Draw - Trade-Ins): £${netDayTotalAfterTradeIns.toFixed(2)}`,
-      `• Net Sales (Sales - Trade-Ins): £${netDailySales.toFixed(2)}`,
+      `⭐ TOTAL (FLOAT + GROSS SALES − TRADE-INS): £${totalBalance.toFixed(2)}`,
       ...(countedCash !== null ? [
         `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
         `• Actual Counted Cash: £${countedCash.toFixed(2)}`,
-        `• Till Variance vs Draw: ${drawerVariance === 0 ? 'Spot-on £0.00 (Balanced ✅)' : (drawerVariance! > 0 ? `+£${drawerVariance!.toFixed(2)} (Over 🟡)` : `-£${Math.abs(drawerVariance!).toFixed(2)} (Short 🔴)`)}`
+        `• Till Variance vs Total: ${drawerVariance === 0 ? 'Spot-on £0.00 (Balanced ✅)' : (drawerVariance! > 0 ? `+£${drawerVariance!.toFixed(2)} (Over 🟡)` : `-£${Math.abs(drawerVariance!).toFixed(2)} (Short 🔴)`)}`
       ] : []),
       `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
       `📈 STALL COMMISSION EARNED: £${totalCommissionEarned.toFixed(2)}`,
       `👥 VENDOR SHARES PAYABLE: £${totalVendorEarnings.toFixed(2)}`,
+      `🛒 NET SALES (SALES − TRADES): £${netDailySales.toFixed(2)}`,
       ``,
       `📋 VENDOR ACTIVITY BREAKDOWN:`,
       ...vendorBreakdown
@@ -475,27 +470,26 @@ export function DailyRundownTab({
             </div>
           </div>
 
-          {/* Right Column: The Main Calculated Balance of the Draw (Float + Sales Only) */}
+          {/* Right Column: The Main Calculated Total (Float + Gross Sales - Trade-Ins) */}
           <div className="lg:col-span-7 space-y-4">
             <div>
               <span className="bg-amber-400 text-black text-[9px] font-black px-2.5 py-1 rounded uppercase tracking-widest inline-flex items-center gap-1 shadow-xs">
                 <Sparkles className="w-3 h-3" />
-                EXPECTED CASH IN DRAW (FLOAT + SALES)
+                TOTAL (FLOAT + GROSS SALES − TRADE-INS)
               </span>
               <div className="mt-2 flex flex-wrap items-baseline gap-3">
                 <span className="text-3xl sm:text-5xl font-black tracking-tight text-white font-mono">
-                  £{expectedDrawerBalance.toFixed(2)}
+                  £{totalBalance.toFixed(2)}
                 </span>
                 <span className="text-xs sm:text-sm font-bold text-rose-200 bg-white/10 px-3 py-1 rounded-full border border-white/15">
-                  Float (£{startingFloat.toFixed(2)}) + Sales (+£{totalSalesGross.toFixed(2)})
+                  Float (£{startingFloat.toFixed(2)}) + Sales (+£{totalSalesGross.toFixed(2)}) − Trades (-£{totalTradeInsValue.toFixed(2)})
                 </span>
               </div>
             </div>
 
-            {/* Clear Equation Formula Ribbons */}
-            <div className="space-y-2">
-              {/* Primary Formula: Cash in Draw = Float + Sales */}
-              <div className="bg-black/40 border border-white/15 rounded-xl p-3 text-xs font-semibold text-rose-100 flex flex-wrap items-center justify-between gap-2.5">
+            {/* Clear Unified Equation Formula Ribbon */}
+            <div className="space-y-1.5">
+              <div className="bg-black/40 border border-white/15 rounded-xl p-3 text-xs font-semibold text-rose-100 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                   <span className="text-amber-300 font-bold">Float:</span>
                   <span className="font-mono font-bold text-white">£{startingFloat.toFixed(2)}</span>
@@ -505,30 +499,20 @@ export function DailyRundownTab({
                   <span className="text-emerald-300 font-bold">Gross Sales:</span>
                   <span className="font-mono font-bold text-emerald-300">+£{totalSalesGross.toFixed(2)}</span>
                 </div>
-                <span className="text-amber-300 font-black">=</span>
-                <div className="flex items-center gap-1.5 bg-amber-400/20 border border-amber-400/40 px-2.5 py-1 rounded">
-                  <span className="text-amber-300 font-black">Cash in Draw:</span>
-                  <span className="font-mono font-black text-amber-200">£{expectedDrawerBalance.toFixed(2)}</span>
-                </div>
-              </div>
-
-              {/* Secondary Formula: Total after Trade-Ins (Trade-ins as a minus of the total) */}
-              <div className="bg-white/5 border border-white/10 rounded-xl p-2.5 px-3 text-xs font-medium text-rose-200/90 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-rose-400 font-black">−</span>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-rose-200/80">Draw Total:</span>
-                  <span className="font-mono font-bold text-white">£{expectedDrawerBalance.toFixed(2)}</span>
-                </div>
-                <span className="text-rose-400 font-bold">-</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-rose-300 font-bold">Trade-Ins (Minus):</span>
+                  <span className="text-rose-300 font-bold">Trade-Ins:</span>
                   <span className="font-mono font-bold text-rose-300">-£{totalTradeInsValue.toFixed(2)}</span>
                 </div>
-                <span className="text-rose-400 font-bold">=</span>
-                <div className="flex items-center gap-1.5 bg-white/10 border border-white/15 px-2 py-0.5 rounded">
-                  <span className="text-white font-bold">Net Total:</span>
-                  <span className="font-mono font-black text-emerald-300">£{netDayTotalAfterTradeIns.toFixed(2)}</span>
+                <span className="text-amber-300 font-black">=</span>
+                <div className="flex items-center gap-1.5 bg-amber-400/20 border border-amber-400/40 px-2.5 py-1 rounded">
+                  <span className="text-amber-300 font-black">Total:</span>
+                  <span className="font-mono font-black text-amber-200">£{totalBalance.toFixed(2)}</span>
                 </div>
               </div>
+              <p className="text-[11px] text-rose-200/80 italic font-medium px-1">
+                * Trade-ins do not add to the cash value, so they are subtracted from the total.
+              </p>
             </div>
 
             {/* End of Day Physical Count Verification input */}
@@ -622,24 +606,24 @@ export function DailyRundownTab({
 
           <div className="mt-3 pt-3 border-t border-zinc-100 text-xs text-zinc-500 space-y-1">
             <div className="flex justify-between">
-              <span>Deduction from Total:</span>
+              <span>Subtracted from Total:</span>
               <strong className="text-rose-600 font-mono">-£{totalTradeInsValue.toFixed(2)}</strong>
             </div>
             <div className="flex justify-between">
-              <span>Cash in Draw:</span>
-              <span className="text-zinc-500 font-medium">Float + Sales (Untouched)</span>
+              <span>Cash Added:</span>
+              <span className="text-zinc-500 font-medium">£0.00 (Cards/Items)</span>
             </div>
           </div>
         </div>
 
-        {/* 3. Newton Stall Revenue & Net Cash */}
+        {/* 3. Newton Stall Revenue & Net Total */}
         <div className="bg-white rounded-xl border border-zinc-200 p-5 shadow-xs relative overflow-hidden">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-extrabold text-[#7c1d36] bg-rose-50 border border-rose-200 px-2 py-0.5 rounded uppercase tracking-wider flex items-center gap-1">
               <ShieldCheck className="w-3 h-3 text-[#7c1d36]" />
-              Stall Controller Cut & Net
+              Stall Commission & Net
             </span>
-            <span className="text-xs font-bold text-zinc-500">Day Commissions</span>
+            <span className="text-xs font-bold text-zinc-500">Day Cut</span>
           </div>
 
           <div className="flex items-baseline gap-2 mt-2">
@@ -650,13 +634,13 @@ export function DailyRundownTab({
 
           <div className="mt-3 pt-3 border-t border-zinc-100 text-xs text-zinc-500 space-y-1">
             <div className="flex justify-between">
-              <span>Net Stall Total (Draw - Trades):</span>
+              <span>Total (Float + Sales − Trades):</span>
               <strong className="font-mono text-emerald-700 font-bold">
-                £{netDayTotalAfterTradeIns.toFixed(2)}
+                £{totalBalance.toFixed(2)}
               </strong>
             </div>
             <div className="flex justify-between">
-              <span>Net Sales (Sales - Trades):</span>
+              <span>Net Sales (Sales − Trades):</span>
               <strong className="font-mono text-zinc-800">
                 £{netDailySales.toFixed(2)}
               </strong>
@@ -834,8 +818,7 @@ export function DailyRundownTab({
                   <th className="py-3 px-4">Vendor</th>
                   <th className="py-3 px-4">Item / Details</th>
                   <th className="py-3 px-4 text-right">Movement</th>
-                  <th className="py-3 px-4 text-right">Cash in Draw (Float + Sales)</th>
-                  <th className="py-3 px-4 text-right">Net Position</th>
+                  <th className="py-3 px-4 text-right">Running Total (Float + Sales − Trades)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-200 font-medium">
@@ -854,11 +837,11 @@ export function DailyRundownTab({
                       <td className="py-3 px-4 whitespace-nowrap">
                         {item.type === 'sale' ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-black text-[10px] uppercase tracking-wider">
-                            <ArrowUpRight className="w-3 h-3 text-emerald-600" /> SALE
+                            <ArrowUpRight className="w-3 h-3 text-emerald-600" /> SALE (+ CASH)
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-100 text-rose-900 rounded font-black text-[10px] uppercase tracking-wider">
-                            <ArrowDownRight className="w-3 h-3 text-rose-700" /> TRADE-IN
+                            <ArrowDownRight className="w-3 h-3 text-rose-700" /> TRADE-IN (− DEDUCT)
                           </span>
                         )}
                       </td>
@@ -879,11 +862,8 @@ export function DailyRundownTab({
                           {item.amount >= 0 ? '+' : ''}£{item.amount.toFixed(2)}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-right font-black font-mono text-zinc-900 whitespace-nowrap bg-zinc-50/50">
-                        £{item.runningDrawBalance.toFixed(2)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-bold font-mono text-zinc-700 whitespace-nowrap">
-                        £{item.runningNetBalance.toFixed(2)}
+                      <td className="py-3 px-4 text-right font-black font-mono text-zinc-900 whitespace-nowrap bg-zinc-50/50 text-sm">
+                        £{item.runningTotalBalance.toFixed(2)}
                       </td>
                     </tr>
                   );
