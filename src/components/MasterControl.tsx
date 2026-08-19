@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Users, Percent, PercentIcon, DollarSign, Coins, TrendingUp, Check, X, RefreshCw, Edit2, Plus, Sparkles, AlertCircle, Search, Calendar, Trash2, Download, FileText } from 'lucide-react';
+import { ShieldCheck, Users, Percent, PercentIcon, DollarSign, Coins, TrendingUp, Check, X, RefreshCw, Edit2, Plus, Sparkles, AlertCircle, Search, Calendar, Trash2, Download, FileText, Wallet } from 'lucide-react';
 import { Vendor, Sale, CashoutRequest, TradeIn } from '../types';
 import { isSaleMature, getRemainingDays } from '../payoutUtils';
 import { downloadVendorClearedBalancePDF } from '../pdfUtils';
+import { DailyRundownTab } from './DailyRundownTab';
 
 interface MasterControlProps {
   vendors: Vendor[];
@@ -57,8 +58,8 @@ export default function MasterControl({
     return '⚫';
   };
 
-  // Tabs for Master Control
-  const [activeTab, setActiveTab] = useState<'vendors' | 'cashouts' | 'tradeins' | 'sales' | 'backups'>('vendors');
+  // Tabs for Master Control - Defaults to 'rundown' for instant daily oversight
+  const [activeTab, setActiveTab] = useState<'rundown' | 'vendors' | 'cashouts' | 'tradeins' | 'sales' | 'backups'>('rundown');
 
   // Editing cashout request state
   const [editingCashoutId, setEditingCashoutId] = useState<string | null>(null);
@@ -470,6 +471,17 @@ export default function MasterControl({
       {/* Navigation Sub-tab panel */}
       <div className="flex border-b border-zinc-200 gap-6 overflow-x-auto">
         <button
+          id="btn-admin-rundown"
+          onClick={() => setActiveTab('rundown')}
+          className={`pb-3 text-xs font-bold transition-all relative whitespace-nowrap focus:outline-none flex items-center gap-1.5 ${
+            activeTab === 'rundown' ? 'text-zinc-900 font-black' : 'text-zinc-500 hover:text-zinc-700'
+          }`}
+        >
+          <Wallet className={`w-3.5 h-3.5 ${activeTab === 'rundown' ? 'text-[#7c1d36]' : 'text-zinc-400'}`} />
+          Daily Rundown & Cash Draw
+          {activeTab === 'rundown' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#7c1d36] rounded-full" />}
+        </button>
+        <button
           id="btn-admin-vendors"
           onClick={() => setActiveTab('vendors')}
           className={`pb-3 text-xs font-bold transition-all relative whitespace-nowrap focus:outline-none ${
@@ -477,7 +489,7 @@ export default function MasterControl({
           }`}
         >
           Vendor Structures ({vendors.length})
-          {activeTab === 'vendors' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
+          {activeTab === 'vendors' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#7c1d36] rounded-full" />}
         </button>
         <button
           id="btn-admin-cashouts"
@@ -487,7 +499,7 @@ export default function MasterControl({
           }`}
         >
           Payout Approvals ({pendingCashouts.length})
-          {activeTab === 'cashouts' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
+          {activeTab === 'cashouts' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#7c1d36] rounded-full" />}
         </button>
         <button
           id="btn-admin-tradeins"
@@ -497,7 +509,7 @@ export default function MasterControl({
           }`}
         >
           Trade-In Verifications ({pendingTradeIns.length})
-          {activeTab === 'tradeins' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
+          {activeTab === 'tradeins' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#7c1d36] rounded-full" />}
         </button>
         <button
           id="btn-admin-sales"
@@ -507,7 +519,7 @@ export default function MasterControl({
           }`}
         >
           Sales Ledger ({sales.length})
-          {activeTab === 'sales' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
+          {activeTab === 'sales' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#7c1d36] rounded-full" />}
         </button>
         <button
           id="btn-admin-backups"
@@ -517,9 +529,20 @@ export default function MasterControl({
           }`}
         >
           Database & Backups 💾
-          {activeTab === 'backups' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />}
+          {activeTab === 'backups' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#7c1d36] rounded-full" />}
         </button>
       </div>
+
+      {/* Panel 0: DAILY RUNDOWN & CASH FLOAT AUDIT */}
+      {activeTab === 'rundown' && (
+        <DailyRundownTab
+          vendors={vendors}
+          sales={sales}
+          tradeIns={tradeIns}
+          cashouts={cashouts}
+          onViewVendorProfile={onViewVendorProfile}
+        />
+      )}
 
       {/* Panel 1: VENDOR SETUP */}
       {activeTab === 'vendors' && (
