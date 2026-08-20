@@ -19,7 +19,10 @@ import {
   Edit2,
   Trash2,
   X,
-  RefreshCw
+  RefreshCw,
+  ShieldCheck,
+  Scale,
+  ArrowDownRight
 } from 'lucide-react';
 import { Vendor, Sale, CashoutRequest, TradeIn } from '../types';
 import { 
@@ -156,9 +159,16 @@ export default function UpcomingPayoutsTab({
     };
   });
 
-  // Grand Totals across all stalls
+  // Grand Totals across all stalls (accounting for trade-in deductions)
   const totalClearedFunds = vendorBalancesMap.reduce((acc, v) => acc + v.summary.availableCash, 0);
+  const totalRawClearFunds = vendorBalancesMap.reduce((acc, v) => acc + v.summary.rawClearFunds, 0);
+  const totalTradeInDeductionsClear = vendorBalancesMap.reduce((acc, v) => acc + v.summary.tradeInDeductedFromClear, 0);
+
   const totalPendingPayouts = vendorBalancesMap.reduce((acc, v) => acc + v.summary.pendingCash, 0);
+  const totalRawPendingFunds = vendorBalancesMap.reduce((acc, v) => acc + v.summary.rawPendingFunds, 0);
+  const totalTradeInDeductionsPending = vendorBalancesMap.reduce((acc, v) => acc + v.summary.tradeInDeductedFromPending, 0);
+
+  const totalSpentOnTradeIns = vendorBalancesMap.reduce((acc, v) => acc + v.summary.spentOnTradeIns, 0);
   const totalPendingCashoutsAmt = vendorBalancesMap.reduce((acc, v) => acc + v.summary.pendingCashoutsAmount, 0);
   const totalOutstandingBalance = totalClearedFunds + totalPendingPayouts + totalPendingCashoutsAmt;
 
@@ -185,9 +195,17 @@ export default function UpcomingPayoutsTab({
     isMature: boolean;
     remainingDays: number;
     totalGross: number;
-    totalEarnings: number;
+    totalGrossEarnings: number;
+    totalTradeInDeductions: number;
+    totalNetClearingFunds: number;
     sales: Sale[];
-    vendorTotals: Record<string, { vendor: Vendor; earnings: number; count: number }>;
+    vendorTotals: Record<string, { 
+      vendor: Vendor; 
+      grossEarnings: number; 
+      tradeInDeduction: number; 
+      netClearingFunds: number; 
+      count: number;
+    }>;
   }
 
   const payoutGroupsMap: Record<string, PayoutGroup> = {};
@@ -216,7 +234,9 @@ export default function UpcomingPayoutsTab({
         isMature,
         remainingDays,
         totalGross: 0,
-        totalEarnings: 0,
+        totalGrossEarnings: 0,
+        totalTradeInDeductions: 0,
+        totalNetClearingFunds: 0,
         sales: [],
         vendorTotals: {}
       };
@@ -224,14 +244,20 @@ export default function UpcomingPayoutsTab({
 
     const group = payoutGroupsMap[dateKey];
     group.totalGross += sale.price;
-    group.totalEarnings += sale.vendorEarnings;
+    group.totalGrossEarnings += sale.vendorEarnings;
     group.sales.push(sale);
 
     if (vendor) {
       if (!group.vendorTotals[vendor.id]) {
-        group.vendorTotals[vendor.id] = { vendor, earnings: 0, count: 0 };
+        group.vendorTotals[vendor.id] = { 
+          vendor, 
+          grossEarnings: 0, 
+          tradeInDeduction: 0, 
+          netClearingFunds: 0, 
+          count: 0 
+        };
       }
-      group.vendorTotals[vendor.id].earnings += sale.vendorEarnings;
+      group.vendorTotals[vendor.id].grossEarnings += sale.vendorEarnings;
       group.vendorTotals[vendor.id].count += 1;
     }
   });
@@ -240,6 +266,34 @@ export default function UpcomingPayoutsTab({
   const sortedPayoutGroups = Object.values(payoutGroupsMap).sort(
     (a, b) => a.payoutDate.getTime() - b.payoutDate.getTime()
   );
+
+  // Apply chronological trade-in deductions per vendor across Friday payout dates
+  const vendorRemainingTradeExpense: Record<string, number> = {};
+  vendorBalancesMap.forEach(({ vendor, summary }) => {
+    vendorRemainingTradeExpense[vendor.id] = summary.spentOnTradeIns || 0;
+  });
+
+  sortedPayoutGroups.forEach((group) => {
+    let groupTradeInDeductions = 0;
+    let groupNetClearingFunds = 0;
+
+    Object.keys(group.vendorTotals).forEach((vendorId) => {
+      const vInfo = group.vendorTotals[vendorId];
+      const unappliedExpense = vendorRemainingTradeExpense[vendorId] || 0;
+      const deduction = Math.min(vInfo.grossEarnings, unappliedExpense);
+      const netClearing = Math.max(0, vInfo.grossEarnings - deduction);
+
+      vInfo.tradeInDeduction = deduction;
+      vInfo.netClearingFunds = netClearing;
+      vendorRemainingTradeExpense[vendorId] = Math.max(0, unappliedExpense - deduction);
+
+      groupTradeInDeductions += deduction;
+      groupNetClearingFunds += netClearing;
+    });
+
+    group.totalTradeInDeductions = groupTradeInDeductions;
+    group.totalNetClearingFunds = groupNetClearingFunds;
+  });
 
   const toggleExpandDate = (dateKey: string) => {
     setExpandedDates((prev) => ({ ...prev, [dateKey]: !prev[dateKey] }));
@@ -297,6 +351,14 @@ export default function UpcomingPayoutsTab({
             </button>
           </div>
         </div>
+
+        {/* Informative Net Funds Clarification Callout */}
+        <div className="mt-4 pt-3 border-t border-zinc-100 flex items-center gap-2.5 text-xs text-zinc-700 bg-zinc-50/80 px-3.5 py-2 rounded-lg border border-zinc-200/60">
+          <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span className="font-semibold leading-relaxed">
+            <strong className="text-zinc-900 font-black">Net Cleared Funds Rule:</strong> All upcoming payout figures display the <strong>exact net amount that will clear into stall funds</strong>, after applying automatic reductions for register card trade-ins and stock acquisitions.
+          </span>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -306,7 +368,7 @@ export default function UpcomingPayoutsTab({
           <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50 rounded-full blur-xl -mr-6 -mt-6 pointer-events-none" />
           <div className="flex items-center justify-between relative z-10">
             <span className="text-[10px] font-extrabold text-emerald-700 uppercase tracking-widest">
-              Cleared & Ready Today
+              Cleared & Ready Today (Net)
             </span>
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           </div>
@@ -314,9 +376,17 @@ export default function UpcomingPayoutsTab({
             <span className="text-2xl font-black text-emerald-700">
               £{totalClearedFunds.toFixed(2)}
             </span>
-            <span className="text-[11px] font-bold text-emerald-600/80 block mt-0.5">
-              Available for immediate Friday cashout
-            </span>
+            <div className="mt-1">
+              {totalTradeInDeductionsClear > 0 ? (
+                <span className="text-[10px] font-bold text-emerald-800/80 block bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/50">
+                  Gross: £{totalRawClearFunds.toFixed(2)} • Trade-ins: -£{totalTradeInDeductionsClear.toFixed(2)}
+                </span>
+              ) : (
+                <span className="text-[11px] font-bold text-emerald-600/80 block">
+                  Available for immediate Friday cashout
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -325,7 +395,7 @@ export default function UpcomingPayoutsTab({
           <div className="absolute top-0 right-0 w-24 h-24 bg-blue-50 rounded-full blur-xl -mr-6 -mt-6 pointer-events-none" />
           <div className="flex items-center justify-between relative z-10">
             <span className="text-[10px] font-extrabold text-blue-700 uppercase tracking-widest">
-              Upcoming Pending Payouts
+              Upcoming Pending (Net Clearing)
             </span>
             <Clock className="w-4 h-4 text-blue-600" />
           </div>
@@ -333,27 +403,35 @@ export default function UpcomingPayoutsTab({
             <span className="text-2xl font-black text-blue-700">
               £{totalPendingPayouts.toFixed(2)}
             </span>
-            <span className="text-[11px] font-bold text-blue-600/80 block mt-0.5">
-              Maturing across future Friday dates
-            </span>
+            <div className="mt-1">
+              {totalTradeInDeductionsPending > 0 ? (
+                <span className="text-[10px] font-bold text-blue-800/80 block bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200/50">
+                  Gross: £{totalRawPendingFunds.toFixed(2)} • Trade-ins: -£{totalTradeInDeductionsPending.toFixed(2)}
+                </span>
+              ) : (
+                <span className="text-[11px] font-bold text-blue-600/80 block">
+                  Maturing across future Friday dates
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Pending Cashout Requests */}
-        <div className="bg-white border border-amber-200 rounded-xl p-4 shadow-xs relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-amber-50 rounded-full blur-xl -mr-6 -mt-6 pointer-events-none" />
+        {/* Trade-In Deductions Applied */}
+        <div className="bg-white border border-rose-200 rounded-xl p-4 shadow-xs relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-rose-50 rounded-full blur-xl -mr-6 -mt-6 pointer-events-none" />
           <div className="flex items-center justify-between relative z-10">
-            <span className="text-[10px] font-extrabold text-amber-700 uppercase tracking-widest">
-              Pending Cashouts Claimed
+            <span className="text-[10px] font-extrabold text-rose-700 uppercase tracking-widest">
+              Trade-In Deductions Applied
             </span>
-            <Coins className="w-4 h-4 text-amber-600" />
+            <Coins className="w-4 h-4 text-rose-600" />
           </div>
           <div className="mt-3 relative z-10">
-            <span className="text-2xl font-black text-amber-700">
-              £{totalPendingCashoutsAmt.toFixed(2)}
+            <span className="text-2xl font-black text-rose-700">
+              £{totalSpentOnTradeIns.toFixed(2)}
             </span>
-            <span className="text-[11px] font-bold text-amber-600/80 block mt-0.5">
-              Awaiting admin approval/transfer
+            <span className="text-[10px] font-bold text-rose-600/90 block mt-1">
+              Mature: -£{totalTradeInDeductionsClear.toFixed(2)} • Pending: -£{totalTradeInDeductionsPending.toFixed(2)}
             </span>
           </div>
         </div>
@@ -362,7 +440,7 @@ export default function UpcomingPayoutsTab({
         <div className="bg-white border border-zinc-200 rounded-xl p-4 shadow-xs relative overflow-hidden">
           <div className="flex items-center justify-between relative z-10">
             <span className="text-[10px] font-extrabold text-zinc-500 uppercase tracking-widest">
-              Total Unsettled Stall Earnings
+              Total Net Funds Clearing
             </span>
             <TrendingUp className="w-4 h-4 text-zinc-400" />
           </div>
@@ -370,8 +448,8 @@ export default function UpcomingPayoutsTab({
             <span className="text-2xl font-black text-zinc-900">
               £{totalOutstandingBalance.toFixed(2)}
             </span>
-            <span className="text-[11px] font-bold text-zinc-400 block mt-0.5">
-              Combined cleared + pending funds
+            <span className="text-[11px] font-bold text-zinc-500 block mt-1">
+              Combined net cleared + pending stall funds
             </span>
           </div>
         </div>
@@ -482,20 +560,34 @@ export default function UpcomingPayoutsTab({
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] text-zinc-500 font-semibold mt-0.5">
-                          {group.sales.length} card {group.sales.length === 1 ? 'sale' : 'sales'} maturing for {vendorList.length} {vendorList.length === 1 ? 'vendor' : 'vendors'}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <p className="text-[11px] text-zinc-500 font-semibold">
+                            {group.sales.length} card {group.sales.length === 1 ? 'sale' : 'sales'} maturing for {vendorList.length} {vendorList.length === 1 ? 'vendor' : 'vendors'}
+                          </p>
+                          {group.totalTradeInDeductions > 0 && (
+                            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded">
+                              📉 Reduced by £{group.totalTradeInDeductions.toFixed(2)} for register trade-ins
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
 
                     <div className="flex items-center justify-between sm:justify-end gap-3">
                       <div className="text-right">
-                        <span className="text-xs font-extrabold text-zinc-400 block uppercase tracking-widest">
-                          Payout Total Due
+                        <span className="text-[10px] font-extrabold text-zinc-400 block uppercase tracking-widest">
+                          {group.isMature ? 'Cleared Funds Ready' : 'Net Funds That Will Clear'}
                         </span>
-                        <span className={`text-lg font-black ${group.isMature ? 'text-emerald-700' : 'text-zinc-900'}`}>
-                          £{group.totalEarnings.toFixed(2)}
-                        </span>
+                        <div className="flex items-baseline justify-end gap-1.5">
+                          <span className={`text-lg font-black ${group.isMature ? 'text-emerald-700' : 'text-zinc-900'}`}>
+                            £{group.totalNetClearingFunds.toFixed(2)}
+                          </span>
+                          {group.totalTradeInDeductions > 0 && (
+                            <span className="text-[11px] font-semibold text-zinc-400 line-through">
+                              £{group.totalGrossEarnings.toFixed(2)}
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       {/* Standalone Payout PDF Download Button for this Week */}
@@ -535,9 +627,9 @@ export default function UpcomingPayoutsTab({
                   {/* Vendor Earnings Pills Summary */}
                   <div className="px-4 py-3 bg-white border-t border-zinc-100 flex flex-wrap items-center gap-2">
                     <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-widest mr-1">
-                      Vendor Breakdown:
+                      Stall Cleared Funds:
                     </span>
-                    {vendorList.map(({ vendor, earnings, count }) => (
+                    {vendorList.map(({ vendor, grossEarnings, tradeInDeduction, netClearingFunds, count }) => (
                       <div
                         key={vendor.id}
                         className="inline-flex items-center gap-1.5 bg-zinc-50 border border-zinc-200 rounded-lg px-2.5 py-1 text-xs font-bold text-zinc-800"
@@ -547,8 +639,14 @@ export default function UpcomingPayoutsTab({
                           style={{ backgroundColor: vendor.color || '#3B82F6' }}
                         />
                         <span>{vendor.name}:</span>
-                        <span className="text-blue-600 font-extrabold">£{earnings.toFixed(2)}</span>
-                        <span className="text-[10px] font-normal text-zinc-400">({count})</span>
+                        <span className="text-emerald-700 font-black">£{netClearingFunds.toFixed(2)}</span>
+                        {tradeInDeduction > 0 ? (
+                          <span className="text-[10px] font-semibold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200/60">
+                            (Gross £{grossEarnings.toFixed(2)} - Trade-in £{tradeInDeduction.toFixed(2)})
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-normal text-zinc-400">({count})</span>
+                        )}
 
                         <button
                           type="button"
@@ -577,9 +675,16 @@ export default function UpcomingPayoutsTab({
                   {/* Expanded Itemized Sales List */}
                   {isExpanded && (
                     <div className="border-t border-zinc-200 bg-zinc-50/50 p-4 animate-in fade-in duration-150">
-                      <h5 className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-widest mb-3">
-                        Itemized Transactions Maturing On This Date
-                      </h5>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                        <h5 className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-widest">
+                          Itemized Transactions Maturing On This Date
+                        </h5>
+                        {group.totalTradeInDeductions > 0 && (
+                          <div className="text-[11px] font-bold text-zinc-700 bg-white border border-zinc-200 px-2.5 py-1 rounded-md shadow-2xs">
+                            Formula: Gross Sales <span className="font-extrabold text-zinc-900">£{group.totalGrossEarnings.toFixed(2)}</span> — Trade-Ins <span className="font-extrabold text-rose-600">-£{group.totalTradeInDeductions.toFixed(2)}</span> = <span className="font-black text-emerald-700">£{group.totalNetClearingFunds.toFixed(2)} Net Clearing</span>
+                          </div>
+                        )}
+                      </div>
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs">
                           <thead>
@@ -661,27 +766,32 @@ export default function UpcomingPayoutsTab({
       {/* VIEW MODE 2: VENDOR BREAKDOWN TABLE */}
       {viewMode === 'vendors' && (
         <div className="bg-white border border-zinc-200 rounded-xl overflow-hidden shadow-xs">
-          <div className="p-4 bg-zinc-50/80 border-b border-zinc-200 flex justify-between items-center">
+          <div className="p-4 bg-zinc-50/80 border-b border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <h3 className="text-xs font-black text-zinc-900 uppercase tracking-wider">
-                Vendor Stall Payout Summary
+                Vendor Stall Payout Summary & Ledger
               </h3>
               <p className="text-[11px] text-zinc-500 font-medium">
-                Comprehensive balance sheet showing cleared funds, upcoming pending payouts, and net totals per vendor.
+                Comprehensive balance sheet showing gross sales, register trade-in reductions, cleared funds, and net balances.
               </p>
+            </div>
+            <div className="text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md self-start sm:self-auto">
+              Net Cleared Funds = Gross Mature − Trade-Ins
             </div>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="bg-zinc-100/70 border-b border-zinc-200 text-[10px] font-extrabold text-zinc-400 uppercase tracking-widest">
+                <tr className="bg-zinc-100/70 border-b border-zinc-200 text-[10px] font-extrabold text-zinc-500 uppercase tracking-widest">
                   <th className="py-3 px-4">Stall / Vendor</th>
-                  <th className="py-3 px-4 text-right">Cleared Today (£)</th>
-                  <th className="py-3 px-4 text-right">Pending Upcoming (£)</th>
+                  <th className="py-3 px-4 text-right">Gross Mature (£)</th>
+                  <th className="py-3 px-4 text-right">Gross Pending (£)</th>
                   <th className="py-3 px-4 text-right">Trade-In Deductions</th>
+                  <th className="py-3 px-4 text-right">Cleared Today (Net)</th>
+                  <th className="py-3 px-4 text-right">Upcoming Pending (Net)</th>
                   <th className="py-3 px-4 text-right">Pending Cashouts</th>
-                  <th className="py-3 px-4 text-right">Net Consolidated Total</th>
+                  <th className="py-3 px-4 text-right">Net Funds to Clear</th>
                   <th className="py-3 px-4 text-center">PDF Statement</th>
                 </tr>
               </thead>
@@ -707,35 +817,51 @@ export default function UpcomingPayoutsTab({
                         </div>
                       </td>
 
-                      {/* Cleared Today */}
+                      {/* Gross Mature */}
                       <td className="py-3 px-4 text-right">
-                        <span className={`font-black ${summary.availableCash > 0 ? 'text-emerald-600' : 'text-zinc-400'}`}>
-                          £{summary.availableCash.toFixed(2)}
+                        <span className="text-zinc-600 font-semibold">
+                          £{summary.rawClearFunds.toFixed(2)}
                         </span>
                       </td>
 
-                      {/* Pending Upcoming */}
+                      {/* Gross Pending */}
                       <td className="py-3 px-4 text-right">
-                        <span className={`font-black ${summary.pendingCash > 0 ? 'text-blue-600' : 'text-zinc-400'}`}>
-                          £{summary.pendingCash.toFixed(2)}
+                        <span className="text-zinc-600 font-semibold">
+                          £{summary.rawPendingFunds.toFixed(2)}
                         </span>
                       </td>
 
                       {/* Trade-In Deductions */}
                       <td className="py-3 px-4 text-right">
                         {summary.spentOnTradeIns > 0 ? (
-                          <span className="font-extrabold text-red-600 bg-red-50 px-2 py-0.5 rounded text-[11px]">
-                            -£{summary.spentOnTradeIns.toFixed(2)}
-                          </span>
+                          <div className="inline-flex flex-col items-end">
+                            <span className="font-extrabold text-rose-700 bg-rose-50 border border-rose-200/60 px-2 py-0.5 rounded text-[11px]">
+                              -£{summary.spentOnTradeIns.toFixed(2)}
+                            </span>
+                          </div>
                         ) : (
                           <span className="text-zinc-400 text-xs">—</span>
                         )}
                       </td>
 
+                      {/* Cleared Today (Net) */}
+                      <td className="py-3 px-4 text-right">
+                        <span className={`font-black ${summary.availableCash > 0 ? 'text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/60' : 'text-zinc-400'}`}>
+                          £{summary.availableCash.toFixed(2)}
+                        </span>
+                      </td>
+
+                      {/* Pending Upcoming (Net) */}
+                      <td className="py-3 px-4 text-right">
+                        <span className={`font-black ${summary.pendingCash > 0 ? 'text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200/60' : 'text-zinc-400'}`}>
+                          £{summary.pendingCash.toFixed(2)}
+                        </span>
+                      </td>
+
                       {/* Pending Cashouts */}
                       <td className="py-3 px-4 text-right">
                         {summary.pendingCashoutsAmount > 0 ? (
-                          <span className="font-extrabold text-amber-600 bg-amber-50 px-2 py-0.5 rounded text-[11px]">
+                          <span className="font-extrabold text-amber-700 bg-amber-50 px-2 py-0.5 rounded text-[11px]">
                             £{summary.pendingCashoutsAmount.toFixed(2)}
                           </span>
                         ) : (
@@ -743,9 +869,9 @@ export default function UpcomingPayoutsTab({
                         )}
                       </td>
 
-                      {/* Consolidated Total */}
+                      {/* Consolidated Total Net Funds */}
                       <td className="py-3 px-4 text-right">
-                        <span className="font-black text-zinc-900 text-sm">
+                        <span className="font-black text-zinc-950 text-sm">
                           £{summary.consolidatedBalance.toFixed(2)}
                         </span>
                       </td>
@@ -765,6 +891,21 @@ export default function UpcomingPayoutsTab({
                     </tr>
                   ))}
               </tbody>
+              <tfoot className="bg-zinc-100/90 border-t-2 border-zinc-300 font-extrabold text-zinc-900 text-xs">
+                <tr>
+                  <td className="py-3 px-4 uppercase tracking-wider text-[11px] text-zinc-700">Totals Across Stalls:</td>
+                  <td className="py-3 px-4 text-right text-zinc-700">£{totalRawClearFunds.toFixed(2)}</td>
+                  <td className="py-3 px-4 text-right text-zinc-700">£{totalRawPendingFunds.toFixed(2)}</td>
+                  <td className="py-3 px-4 text-right text-rose-700">
+                    {totalSpentOnTradeIns > 0 ? `-£${totalSpentOnTradeIns.toFixed(2)}` : '£0.00'}
+                  </td>
+                  <td className="py-3 px-4 text-right text-emerald-800 font-black">£{totalClearedFunds.toFixed(2)}</td>
+                  <td className="py-3 px-4 text-right text-blue-800 font-black">£{totalPendingPayouts.toFixed(2)}</td>
+                  <td className="py-3 px-4 text-right text-amber-800">£{totalPendingCashoutsAmt.toFixed(2)}</td>
+                  <td className="py-3 px-4 text-right text-zinc-950 text-sm font-black">£{totalOutstandingBalance.toFixed(2)}</td>
+                  <td className="py-3 px-4"></td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>

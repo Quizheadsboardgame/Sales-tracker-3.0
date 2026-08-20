@@ -79,16 +79,18 @@ export function getWeekOfYear(date: Date = new Date()): number {
 }
 
 export interface VendorBalanceSummary {
-  rawClearFunds: number;        // Uncashed mature sales earnings
-  rawPendingFunds: number;      // Uncashed non-mature sales earnings
-  tradeCredit: number;          // Raw vendor.tradeCredit
-  spentOnTradeIns: number;      // Total spent on trade-ins if tradeCredit < 0
-  availableCash: number;        // Cleared funds available for cashout after deducting trade-in expenses
-  pendingCash: number;          // Pending funds remaining after deducting any leftover trade-in expenses
-  netTradeCredit: number;       // Positive trade credit remaining
-  netOwed: number;              // Amount vendor owes if trade-ins exceed clear + pending funds
-  pendingCashoutsAmount: number;// Amount in pending cashout requests
-  consolidatedBalance: number;  // Net overall balance
+  rawClearFunds: number;              // Uncashed mature sales earnings (before trade-in deductions)
+  rawPendingFunds: number;            // Uncashed non-mature sales earnings (before trade-in deductions)
+  tradeCredit: number;                // Raw vendor.tradeCredit
+  spentOnTradeIns: number;            // Total spent on trade-ins if tradeCredit < 0
+  tradeInDeductedFromClear: number;   // Trade-in expense deducted from mature cleared funds
+  tradeInDeductedFromPending: number; // Trade-in expense deducted from upcoming pending funds
+  availableCash: number;              // Cleared funds available for cashout after deducting trade-in expenses
+  pendingCash: number;                // Pending funds that will clear after deducting leftover trade-in expenses
+  netTradeCredit: number;             // Positive trade credit remaining
+  netOwed: number;                    // Amount vendor owes if trade-ins exceed clear + pending funds
+  pendingCashoutsAmount: number;      // Amount in pending cashout requests
+  consolidatedBalance: number;        // Net overall balance that will clear as funds
 }
 
 /**
@@ -132,19 +134,27 @@ export function calculateVendorBalances(
   let netTradeCredit = 0;
   let netOwed = 0;
   let spentOnTradeIns = 0;
+  let tradeInDeductedFromClear = 0;
+  let tradeInDeductedFromPending = 0;
 
   if (tradeCreditVal < 0) {
     spentOnTradeIns = Math.abs(tradeCreditVal);
     // Trade-in expenses reduce clear funds first
+    tradeInDeductedFromClear = Math.min(rawClearFunds, spentOnTradeIns);
     availableCash = Math.max(0, rawClearFunds - spentOnTradeIns);
+
     const remainingTradeExpense = Math.max(0, spentOnTradeIns - rawClearFunds);
     // Leftover trade-in expense reduces pending funds next
+    tradeInDeductedFromPending = Math.min(rawPendingFunds, remainingTradeExpense);
     pendingCash = Math.max(0, rawPendingFunds - remainingTradeExpense);
+
     // Remaining debt if trade-ins spent exceed clear + pending funds
     netOwed = Math.max(0, remainingTradeExpense - rawPendingFunds);
     netTradeCredit = 0;
   } else {
     spentOnTradeIns = 0;
+    tradeInDeductedFromClear = 0;
+    tradeInDeductedFromPending = 0;
     availableCash = rawClearFunds;
     pendingCash = rawPendingFunds;
     netTradeCredit = tradeCreditVal;
@@ -158,6 +168,8 @@ export function calculateVendorBalances(
     rawPendingFunds,
     tradeCredit: tradeCreditVal,
     spentOnTradeIns,
+    tradeInDeductedFromClear,
+    tradeInDeductedFromPending,
     availableCash,
     pendingCash,
     netTradeCredit,
