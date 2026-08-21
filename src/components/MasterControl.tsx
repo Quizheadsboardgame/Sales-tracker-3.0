@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { ShieldCheck, Users, Percent, PercentIcon, DollarSign, Coins, TrendingUp, Check, X, RefreshCw, Edit2, Plus, Sparkles, AlertCircle, Search, Calendar, Trash2, Download, FileText, Wallet } from 'lucide-react';
 import { Vendor, Sale, CashoutRequest, TradeIn } from '../types';
-import { isSaleMature, getRemainingDays } from '../payoutUtils';
-import { downloadVendorClearedBalancePDF } from '../pdfUtils';
+import { isSaleMature, getRemainingDays, getPayoutDate, getWeekOfYear } from '../payoutUtils';
+import { downloadVendorClearedBalancePDF, downloadStandaloneWeeklyVendorPayoutPDF } from '../pdfUtils';
 import { DailyRundownTab } from './DailyRundownTab';
+import { WeeklyPayoutPDFsTab } from './WeeklyPayoutPDFsTab';
 
 interface MasterControlProps {
   vendors: Vendor[];
@@ -59,7 +60,7 @@ export default function MasterControl({
   };
 
   // Tabs for Master Control - Defaults to 'rundown' for instant daily oversight
-  const [activeTab, setActiveTab] = useState<'rundown' | 'vendors' | 'cashouts' | 'tradeins' | 'sales' | 'backups'>('rundown');
+  const [activeTab, setActiveTab] = useState<'rundown' | 'weeklyPdfs' | 'vendors' | 'cashouts' | 'tradeins' | 'sales' | 'backups'>('rundown');
 
   // Editing cashout request state
   const [editingCashoutId, setEditingCashoutId] = useState<string | null>(null);
@@ -482,6 +483,17 @@ export default function MasterControl({
           {activeTab === 'rundown' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#7c1d36] rounded-full" />}
         </button>
         <button
+          id="btn-admin-weekly-pdfs"
+          onClick={() => setActiveTab('weeklyPdfs')}
+          className={`pb-3 text-xs font-bold transition-all relative whitespace-nowrap focus:outline-none flex items-center gap-1.5 ${
+            activeTab === 'weeklyPdfs' ? 'text-zinc-900 font-black' : 'text-zinc-500 hover:text-zinc-700'
+          }`}
+        >
+          <FileText className={`w-3.5 h-3.5 ${activeTab === 'weeklyPdfs' ? 'text-amber-600' : 'text-zinc-400'}`} />
+          Weekly Payout PDFs
+          {activeTab === 'weeklyPdfs' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#7c1d36] rounded-full" />}
+        </button>
+        <button
           id="btn-admin-vendors"
           onClick={() => setActiveTab('vendors')}
           className={`pb-3 text-xs font-bold transition-all relative whitespace-nowrap focus:outline-none ${
@@ -544,6 +556,17 @@ export default function MasterControl({
         />
       )}
 
+      {/* Panel 0.5: WEEKLY PAYOUT PDFS (STANDALONE WEEKLY VERSION) */}
+      {activeTab === 'weeklyPdfs' && (
+        <WeeklyPayoutPDFsTab
+          vendors={vendors}
+          sales={sales}
+          cashouts={cashouts}
+          tradeIns={tradeIns}
+          onViewVendorProfile={onViewVendorProfile}
+        />
+      )}
+
       {/* Panel 1: VENDOR SETUP */}
       {activeTab === 'vendors' && (
         <div className="space-y-4">
@@ -590,11 +613,26 @@ export default function MasterControl({
                   <div className="flex items-center gap-1.5">
                     <button
                       id={`btn-pdf-vendor-${v.id}`}
-                      onClick={() => downloadVendorClearedBalancePDF(v, sales, cashouts)}
-                      className="p-2 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-blue-600 rounded-lg transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold"
-                      title="Download Vendor Cleared Balance & Sales PDF Statement"
+                      onClick={() => {
+                        const now = new Date();
+                        const vendorSales = sales.filter((s) => s.vendorId === v.id);
+                        const payoutDate = vendorSales.length > 0 ? getPayoutDate(vendorSales[0].date) : new Date();
+                        const weekNum = getWeekOfYear(payoutDate);
+                        const salesForWeek = vendorSales.filter((s) => getWeekOfYear(getPayoutDate(s.date)) === weekNum);
+
+                        downloadStandaloneWeeklyVendorPayoutPDF({
+                          vendor: v,
+                          weekNumber: weekNum,
+                          payoutDate,
+                          sales: salesForWeek.length > 0 ? salesForWeek : vendorSales,
+                          now
+                        });
+                      }}
+                      className="p-2 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-800 hover:text-amber-700 rounded-lg transition-all cursor-pointer flex items-center gap-1 text-[11px] font-bold"
+                      title="Download Standalone Weekly Payout PDF Statement (Week version)"
                     >
-                      <Download className="w-3.5 h-3.5" />
+                      <FileText className="w-3.5 h-3.5 text-amber-500" />
+                      <span className="text-[10px]">Weekly PDF</span>
                     </button>
                     <button
                       id={`btn-edit-vendor-${v.id}`}
